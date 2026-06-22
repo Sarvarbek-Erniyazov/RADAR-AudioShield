@@ -1,0 +1,11 @@
+{
+  "dataset_root": "datasets/03_DiffSSD",
+  "sample_rate": 16000,
+  "duration_seconds": 4.0,
+  "batch_size": 4,
+  "epochs": 1,
+  "max_train_items": 64,
+  "max_val_items": 32,
+  "note": "This is a smoke-test profile. It still needs real_speech/ unless --allow-single-class-debug is used."
+}
+

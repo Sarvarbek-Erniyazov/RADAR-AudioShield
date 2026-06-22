@@ -1,0 +1,7 @@
+numpy>=1.23
+torch>=2.1
+torchaudio>=2.1
+soundfile>=0.12
+transformers>=4.38
+tqdm>=4.66
+safetensors>=0.4

@@ -1,0 +1,414 @@
+{
+  "overall": {
+    "n": 54613.0,
+    "eer": 0.07824915865793192,
+    "eer_threshold": 0.057463888078927994,
+    "ece": 0.2514838490376563,
+    "accuracy": 0.7624192042187757,
+    "balanced_accuracy": 0.8451099334210692,
+    "best_accuracy": 0.9220332155347628,
+    "best_accuracy_threshold": 0.057258423417806625
+  },
+  "groups": {
+    "accent=default": {
+      "n": 42113.0,
+      "eer": 0.10148061999504665,
+      "eer_threshold": 0.05696488171815872,
+      "ece": 0.2716147555750652,
+      "accuracy": 0.7289435566214708,
+      "balanced_accuracy": 0.8078795412642066,
+      "best_accuracy": 0.9016930638995084,
+      "best_accuracy_threshold": 0.057739127427339554
+    },
+    "accent=en-au": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.0975639554440975,
+      "accuracy": 0.9724,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "accent=en-br": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.16104348813295363,
+      "accuracy": 0.8996,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "accent=en-default": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.2317282107397914,
+      "accuracy": 0.824,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "accent=en-india": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.16943717499077324,
+      "accuracy": 0.8884,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "accent=en-us": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.258537269076705,
+      "accuracy": 0.7916,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "category=pretrained": {
+      "n": 12500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.2820511405479908,
+      "accuracy": 0.80304,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "category=real": {
+      "n": 12113.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.06373113695331258,
+      "accuracy": 0.9937257491950797,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": Infinity
+    },
+    "category=zeroshot": {
+      "n": 30000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.36602078175197056,
+      "accuracy": 0.6521,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "media_state=clean": {
+      "n": 7127.0,
+      "eer": 0.2222202723571529,
+      "eer_threshold": 0.9317201972007751,
+      "ece": 0.06185575007923997,
+      "accuracy": 0.9994387540339554,
+      "balanced_accuracy": 0.5,
+      "best_accuracy": 0.9994387540339554,
+      "best_accuracy_threshold": -Infinity
+    },
+    "media_state=codec_proxy": {
+      "n": 20297.0,
+      "eer": 0.2060503705844457,
+      "eer_threshold": 0.6869393587112427,
+      "ece": 0.2063474444411932,
+      "accuracy": 0.8890476425087451,
+      "balanced_accuracy": 0.7787684614875157,
+      "best_accuracy": 0.9918707198108094,
+      "best_accuracy_threshold": -Infinity
+    },
+    "media_state=noise_mixed": {
+      "n": 23516.0,
+      "eer": 0.23805045571139802,
+      "eer_threshold": 0.05632317438721657,
+      "ece": 0.36584022466830246,
+      "accuracy": 0.5509015138629019,
+      "balanced_accuracy": 0.5445999770155681,
+      "best_accuracy": 0.8299030447354993,
+      "best_accuracy_threshold": 0.057258423417806625
+    },
+    "media_state=resampled": {
+      "n": 3635.0,
+      "eer": 0.13429269584476866,
+      "eer_threshold": 0.7450301647186279,
+      "ece": 0.13539889252845821,
+      "accuracy": 0.9576341127922972,
+      "balanced_accuracy": 0.8274772497472194,
+      "best_accuracy": 0.9939477303988996,
+      "best_accuracy_threshold": 0.04094788059592247
+    },
+    "media_state=rir_convolved": {
+      "n": 38.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.26141418987198883,
+      "accuracy": 0.8947368421052632,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=diffgantts": {
+      "n": 5000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.35900145384445786,
+      "accuracy": 0.7524,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=elevenlabs": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.5543040121465922,
+      "accuracy": 0.3956,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=gradtts": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.3684143189802766,
+      "accuracy": 0.6776,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=librispeech": {
+      "n": 5563.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.06622972137490751,
+      "accuracy": 0.9915513212295524,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": Infinity
+    },
+    "method_name=ljspeech": {
+      "n": 6550.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.061609056779673994,
+      "accuracy": 0.9955725190839695,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": Infinity
+    },
+    "method_name=openvoicev2": {
+      "n": 12500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.18366201967686413,
+      "accuracy": 0.8752,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=playht": {
+      "n": 5000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.5959994077779353,
+      "accuracy": 0.373,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=prodiff": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.1454547717019915,
+      "accuracy": 0.9372,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=unitspeech": {
+      "n": 5000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.5935417662255467,
+      "accuracy": 0.3768,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=wavegrad2": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.17838370436877013,
+      "accuracy": 0.8956,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=xttsv2": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.2667477337390184,
+      "accuracy": 0.7788,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=yourtts": {
+      "n": 2500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.27380518874675036,
+      "accuracy": 0.7752,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "source=commercial": {
+      "n": 7500.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.5821009425674877,
+      "accuracy": 0.38053333333333333,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "source=opensource": {
+      "n": 35000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.28972873257579546,
+      "accuracy": 0.7642,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "source=real": {
+      "n": 12113.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.06373113695331258,
+      "accuracy": 0.9937257491950797,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": Infinity
+    },
+    "speaker_id=100": {
+      "n": 1000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.25929719087854025,
+      "accuracy": 0.786,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "speaker_id=1487": {
+      "n": 1000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.4541181716732681,
+      "accuracy": 0.523,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "speaker_id=2061": {
+      "n": 1000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.12379029958695176,
+      "accuracy": 0.929,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "speaker_id=3654": {
+      "n": 1000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.5210099538080394,
+      "accuracy": 0.422,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "speaker_id=4490": {
+      "n": 1000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.8560760111920535,
+      "accuracy": 0.065,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "speaker_id=5448": {
+      "n": 5000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.28440381490215655,
+      "accuracy": 0.7426,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "speaker_id=6167": {
+      "n": 5000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.28412660974636667,
+      "accuracy": 0.7692,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "speaker_id=6575": {
+      "n": 5000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.6023772501125931,
+      "accuracy": 0.385,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "speaker_id=7995": {
+      "n": 5000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.25260678875893355,
+      "accuracy": 0.7682,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "speaker_id=8848": {
+      "n": 5000.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.329751901564002,
+      "accuracy": 0.7026,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "speaker_id=unknown": {
+      "n": 24613.0,
+      "eer": 0.03920703376537604,
+      "eer_threshold": 0.06729120016098022,
+      "ece": 0.12702119672773202,
+      "accuracy": 0.8968837606143095,
+      "balanced_accuracy": 0.8983828745975398,
+      "best_accuracy": 0.961321252996384,
+      "best_accuracy_threshold": 0.06886613368988037
+    }
+  }
+}

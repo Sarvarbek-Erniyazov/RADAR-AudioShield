@@ -1,0 +1,144 @@
+{
+  "overall": {
+    "n": 52320.0,
+    "eer": 0.4944954128440367,
+    "eer_threshold": 0.1124928742647171,
+    "ece": 0.34548818085396765,
+    "accuracy": 0.5089831804281345,
+    "balanced_accuracy": 0.5089831804281345,
+    "best_accuracy": 0.5111238532110092,
+    "best_accuracy_threshold": 0.1142069473862648
+  },
+  "groups": {
+    "accent=default": {
+      "n": 52320.0,
+      "eer": 0.4944954128440367,
+      "eer_threshold": 0.1124928742647171,
+      "ece": 0.34548818085396765,
+      "accuracy": 0.5089831804281345,
+      "balanced_accuracy": 0.5089831804281345,
+      "best_accuracy": 0.5111238532110092,
+      "best_accuracy_threshold": 0.1142069473862648
+    },
+    "category=real": {
+      "n": 26160.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.18130040157284438,
+      "accuracy": 0.9117354740061162,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": Infinity
+    },
+    "category=zeroshot": {
+      "n": 26160.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.8053384772635747,
+      "accuracy": 0.1062308868501529,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "media_state=clean": {
+      "n": 15.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.003460264205932595,
+      "accuracy": 1.0,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "media_state=codec_proxy": {
+      "n": 394.0,
+      "eer": 0.5331243469174504,
+      "eer_threshold": 0.9533915519714355,
+      "ece": 0.22149578645485007,
+      "accuracy": 0.7411167512690355,
+      "balanced_accuracy": 0.49847439916405434,
+      "best_accuracy": 0.8096446700507615,
+      "best_accuracy_threshold": -Infinity
+    },
+    "media_state=noise_mixed": {
+      "n": 51544.0,
+      "eer": 0.4974585026155267,
+      "eer_threshold": 0.11244422197341919,
+      "ece": 0.3477579814051027,
+      "accuracy": 0.5067321123700139,
+      "balanced_accuracy": 0.504094360982967,
+      "best_accuracy": 0.5084781933881732,
+      "best_accuracy_threshold": 0.1142069473862648
+    },
+    "media_state=resampled": {
+      "n": 331.0,
+      "eer": 0.5198765893792072,
+      "eer_threshold": 0.8434022068977356,
+      "ece": 0.28946502660921697,
+      "accuracy": 0.5558912386706949,
+      "balanced_accuracy": 0.4988406881077038,
+      "best_accuracy": 0.5830815709969789,
+      "best_accuracy_threshold": 0.04229412227869034
+    },
+    "media_state=rir_convolved": {
+      "n": 36.0,
+      "eer": 0.6481481481481481,
+      "eer_threshold": 0.7106786966323853,
+      "ece": 0.3410945213917228,
+      "accuracy": 0.5555555555555556,
+      "balanced_accuracy": 0.37037037037037035,
+      "best_accuracy": 0.75,
+      "best_accuracy_threshold": -Infinity
+    },
+    "method_name=librispeech": {
+      "n": 26160.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.18130040157284438,
+      "accuracy": 0.9117354740061162,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": Infinity
+    },
+    "method_name=openvoicev2": {
+      "n": 26160.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.8053384772635747,
+      "accuracy": 0.1062308868501529,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "source=opensource": {
+      "n": 26160.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.8053384772635747,
+      "accuracy": 0.1062308868501529,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": -Infinity
+    },
+    "source=real": {
+      "n": 26160.0,
+      "eer": NaN,
+      "eer_threshold": NaN,
+      "ece": 0.18130040157284438,
+      "accuracy": 0.9117354740061162,
+      "balanced_accuracy": NaN,
+      "best_accuracy": 1.0,
+      "best_accuracy_threshold": Infinity
+    },
+    "speaker_id=unknown": {
+      "n": 52320.0,
+      "eer": 0.4944954128440367,
+      "eer_threshold": 0.1124928742647171,
+      "ece": 0.34548818085396765,
+      "accuracy": 0.5089831804281345,
+      "balanced_accuracy": 0.5089831804281345,
+      "best_accuracy": 0.5111238532110092,
+      "best_accuracy_threshold": 0.1142069473862648
+    }
+  }
+}

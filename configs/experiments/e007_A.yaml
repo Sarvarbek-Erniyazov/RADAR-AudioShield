@@ -1,0 +1,32 @@
+# e007-A — Backbone adaptation (CE only). Isolates the effect of unfreezing.
+experiment:
+  train_corpora: ["asvspoof5", "diffssd", "fakeorreal", "vctk"]
+  manifest_dir: "manifests"
+  data_root: ".."          # SET on server to the dataset root
+  sample_rate: 16000
+  duration_seconds: 4.0
+  seed: 13
+consistency:
+  lambda_kl: 0.0
+  lambda_emb: 0.0
+loss_weights:
+  cls: 1.0
+  con: 1.0
+spoof_pos_weight: 1.0       # preserve AI4T (e005-C showed >1 trades it away)
+focal_gamma: 0.0
+xc_contrastive:
+  enabled: false            # CE only for the adaptation baseline
+train:
+  batch_size: 16            # PLACEHOLDER — set via --override after memory smoke
+  balanced_sampler: true
+  head_lr: 1.0e-3           # literature ratio (high head / low backbone)
+  backbone_lr: 1.0e-6       # conservative; minimal disruption of pretrained features
+  weight_decay: 1.0e-4
+  epochs: 30
+  early_stopping_patience: 6
+  num_workers: 0
+  max_val_items_per_corpus: 2000
+  max_steps_per_epoch: 1500 # conserves GPU time vs 2000
+  unfreeze_top_k: 6         # PLACEHOLDER — set via --override after memory smoke
+  no_amp: false             # 24 GB: AMP likely safe; verify in smoke (set true if NaN)
+  probe_every_epoch: true

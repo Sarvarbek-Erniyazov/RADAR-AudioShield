@@ -1,0 +1,27 @@
+# e002 arm B: channel-consistency, ASVspoof5-only, frozen backbone.
+experiment:
+  train_corpora: ["asvspoof5"]
+  manifest_dir: "manifests"
+  data_root: ".."
+  sample_rate: 16000
+  duration_seconds: 4.0
+  seed: 13
+consistency:
+  lambda_kl: 1.0
+  lambda_emb: 0.5
+loss_weights:
+  cls: 1.0
+  con: 1.0
+spoof_pos_weight: 1.0
+focal_gamma: 0.0
+train:
+  batch_size: 32
+  head_lr: 1.0e-4
+  weight_decay: 1.0e-4
+  epochs: 30
+  early_stopping_patience: 6
+  num_workers: 0
+  max_val_items_per_corpus: 2000
+  max_steps_per_epoch: 2000
+  unfreeze_top_k: 0
+  no_amp: true

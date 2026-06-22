@@ -1,0 +1,43 @@
+# e001: first unified BMI + CALAS run. WavLM-large frozen (UPC stage 1).
+experiment:
+  name: e001_unified_v1
+  seed: 13
+  data_root: ..
+  manifest_dir: manifests
+  train_corpora: [diffssd, fakeorreal, asvspoof5, vctk]
+  # held out (NEVER in sampler): inthewild, replaydf, ai4t
+  sample_rate: 16000
+  duration_seconds: 4.0
+
+train:
+  batch_size: 8
+  n_bona_domains: 3          # BMI quota: distinct bona-fide domains per batch
+  min_per_domain: 2          # >=2 each so Kwok term is defined
+  head_lr: 1.0e-4
+  weight_decay: 1.0e-4
+  epochs: 30
+  max_steps_per_epoch: 4000   # ~32k balanced utts/epoch; 0 = full
+  early_stopping_patience: 8
+  grl_warmup_epochs: 8       # ramp grl_lambda 0 -> grl_lambda_max
+  grl_lambda_max: 0.2
+  max_val_items_per_corpus: 2000
+  num_workers: 6
+  no_amp: false
+
+bmi_kwok_kind: mmd           # main; "wasserstein" for the ablation run
+spoof_pos_weight: 1.25
+focal_gamma: 1.0
+
+loss_weights:
+  cls: 1.0
+  aam: 0.5
+  proto_reg: 0.1            # intra + inter
+  con: 0.3
+  bmi_cent: 0.3
+  bmi_grl: 0.3
+  bmi_kwok: 0.5
+
+calas:
+  beta_max: 1.0
+  ema: 0.95
+  temp: 4.0

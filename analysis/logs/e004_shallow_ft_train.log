@@ -1,0 +1,37 @@
+
+sharg@erniyazov207942 MINGW64 ~/Desktop/next mission/RADAR AudioShield/new_model (dataset/asvspoof5-train)
+$ cd "C:/Users/sharg/Desktop/next mission/RADAR AudioShield/new_model" && \
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONUNBUFFERED=1 python -u scripts/train_e002.py \
+  --exp-config configs/experiments/e004_aft_v1.yaml \
+  --output-dir runs/e004_aft_v1 2>&1 | tee runs/e004_aft_v1_train.log
+C:\Users\sharg\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\requests\__init__.py:113: RequestsDepend
+  warnings.warn(
+Some weights of the model checkpoint at microsoft/wavlm-large were not used when initializing WavLMModel: ['encoder.pos_conv_embed.conv.weight_g', 'encoder.pos_conv_embed.conv.wei
+- This IS expected if you are initializing WavLMModel from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClass
+- This IS NOT expected if you are initializing WavLMModel from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification mode
+Some weights of WavLMModel were not initialized from the model checkpoint at microsoft/wavlm-large and are newly initialized: ['encoder.pos_conv_embed.conv.parametrizations.weight
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+C:\Users\sharg\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\torch\nn\modules\module.py:1326: UserWar
+  return t.to(
+[e002] gradient checkpointing enabled on backbone
+[e002] stage2: unfroze top 4 layers, backbone_lr=1e-06, trainable backbone params=50,387,040
+C:\Users\sharg\Desktop\next mission\RADAR AudioShield\new_model\scripts\train_e002.py:143: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp
+  scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+device=cuda amp=False train_rows=182357 corpora=['asvspoof5'] dev=['asvspoof5_clean', 'asvspoof5_deg'] lambda_kl=0.0 lambda_emb=0.0 unfreeze_top_k=4
+C:\Users\sharg\Desktop\next mission\RADAR AudioShield\new_model\src\audioshield\training\loop_e002.py:30: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please u
+  with torch.cuda.amp.autocast(enabled=use_amp):
+C:\Users\sharg\Desktop\next mission\RADAR AudioShield\new_model\src\audioshield\training\loop_e002.py:84: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please u
+  with torch.cuda.amp.autocast(enabled=use_amp):
+epoch=1 dt=4431s steps=2000 loss=0.1395 cls=0.1395 con=0.0000 mean_deg_dev_eer=0.1061 per={'asvspoof5_clean': 0.0706, 'asvspoof5_deg': 0.1061}
+epoch=2 dt=4239s steps=2000 loss=0.0759 cls=0.0759 con=0.0000 mean_deg_dev_eer=0.1022 per={'asvspoof5_clean': 0.0492, 'asvspoof5_deg': 0.1022}
+epoch=3 dt=4144s steps=2000 loss=0.0598 cls=0.0598 con=0.0000 mean_deg_dev_eer=0.1350 per={'asvspoof5_clean': 0.0486, 'asvspoof5_deg': 0.135}
+epoch=4 dt=4126s steps=2000 loss=0.0562 cls=0.0562 con=0.0000 mean_deg_dev_eer=0.1264 per={'asvspoof5_clean': 0.0575, 'asvspoof5_deg': 0.1264}
+epoch=5 dt=4126s steps=2000 loss=0.0550 cls=0.0550 con=0.0000 mean_deg_dev_eer=0.1216 per={'asvspoof5_clean': 0.073, 'asvspoof5_deg': 0.1216}
+epoch=6 dt=4141s steps=2000 loss=0.0502 cls=0.0502 con=0.0000 mean_deg_dev_eer=0.1129 per={'asvspoof5_clean': 0.0665, 'asvspoof5_deg': 0.1129}
+epoch=7 dt=4168s steps=2000 loss=0.0484 cls=0.0484 con=0.0000 mean_deg_dev_eer=0.1123 per={'asvspoof5_clean': 0.0637, 'asvspoof5_deg': 0.1123}
+epoch=8 dt=4163s steps=2000 loss=0.0472 cls=0.0472 con=0.0000 mean_deg_dev_eer=0.1192 per={'asvspoof5_clean': 0.0441, 'asvspoof5_deg': 0.1192}
+early_stop epoch=8 best=0.1022
+
+sharg@erniyazov207942 MINGW64 ~/Desktop/next mission/RADAR AudioShield/new_model (dataset/asvspoof5-train)
+$

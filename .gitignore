@@ -1,0 +1,31 @@
+# data & models — never in git
+datasets/
+**/runs/
+features_cache/
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.wav
+*.flac
+*.mp3
+# third-party PDFs (list them in papers/README.md instead)
+*.pdf
+# binary docs
+*.docx
+*.code-workspace
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.ipynb_checkpoints/
+# os/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
