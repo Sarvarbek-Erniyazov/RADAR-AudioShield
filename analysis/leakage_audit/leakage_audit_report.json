@@ -1,0 +1,116 @@
+{
+  "train_corpora": [
+    "asvspoof5",
+    "diffssd",
+    "fakeorreal",
+    "vctk"
+  ],
+  "test_corpora": [
+    "inthewild",
+    "replaydf",
+    "ai4t"
+  ],
+  "data_root": "..",
+  "checks": {
+    "metadata": {
+      "inthewild": {
+        "video_id": {
+          "n_shared": 0,
+          "examples": []
+        },
+        "speaker_id": {
+          "n_shared": 0,
+          "examples": []
+        },
+        "file_stem": {
+          "n_shared": 0,
+          "examples": []
+        },
+        "utt_id": {
+          "n_shared": 0,
+          "examples": []
+        }
+      },
+      "replaydf": {
+        "video_id": {
+          "n_shared": 0,
+          "examples": []
+        },
+        "speaker_id": {
+          "n_shared": 0,
+          "examples": []
+        },
+        "file_stem": {
+          "n_shared": 0,
+          "examples": []
+        },
+        "utt_id": {
+          "n_shared": 0,
+          "examples": []
+        }
+      },
+      "ai4t": {
+        "video_id": {
+          "n_shared": 0,
+          "examples": []
+        },
+        "speaker_id": {
+          "n_shared": 0,
+          "examples": []
+        },
+        "file_stem": {
+          "n_shared": 0,
+          "examples": []
+        },
+        "utt_id": {
+          "n_shared": 0,
+          "examples": []
+        }
+      }
+    },
+    "hashes": {
+      "inthewild": {
+        "audio_libs_available": true,
+        "n_train_hashed": 531075,
+        "n_test_hashed": 31779,
+        "exact_collisions": {
+          "n": 0,
+          "examples": []
+        },
+        "normalized_waveform_collisions": {
+          "n": 0,
+          "examples": []
+        }
+      },
+      "replaydf": {
+        "audio_libs_available": true,
+        "n_train_hashed": 531075,
+        "n_test_hashed": 52320,
+        "exact_collisions": {
+          "n": 0,
+          "examples": []
+        },
+        "normalized_waveform_collisions": {
+          "n": 0,
+          "examples": []
+        }
+      },
+      "ai4t": {
+        "audio_libs_available": true,
+        "n_train_hashed": 531075,
+        "n_test_hashed": 3148,
+        "exact_collisions": {
+          "n": 0,
+          "examples": []
+        },
+        "normalized_waveform_collisions": {
+          "n": 0,
+          "examples": []
+        }
+      }
+    },
+    "embeddings": {
+      "skipped": "no embeddings provided (Checks 1-2 only)"
+    }
+  }
+}
