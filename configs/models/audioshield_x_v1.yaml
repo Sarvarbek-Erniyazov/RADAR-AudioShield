@@ -9,7 +9,7 @@ model:
   layer_weight_init_center: 10   # peak of the softmax init band
   layer_weight_init_band: [8, 11]
   layer_weight_init_temp: 1.0    # higher = flatter init
-  freeze_backbone: true          # UPC stage 1; stage 2 unfreezes top-k
+  freeze_backbone: true          # UPC stage 1; e007 uses weighted-band unfreezing
 
   pooling: attentive_stats       # P3: attentive statistics pooling
   embedding_dim: 256

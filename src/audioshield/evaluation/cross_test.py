@@ -18,17 +18,28 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from audioshield.data.manifest import read_manifest
 from audioshield.data.unified_dataset import UnifiedAudioDataset, collate_unified
 from audioshield.models.detector import AudioShieldX
 from audioshield.evaluation.metrics import equal_error_rate
 from audioshield.evaluation.calibration import expected_calibration_error
+from audioshield.utils.runtime import describe_device
+
+
+def _loader_kwargs(num_workers: int, device: torch.device) -> dict:
+    num_workers = int(num_workers)
+    kwargs = {"num_workers": num_workers, "pin_memory": device.type == "cuda"}
+    if num_workers > 0:
+        kwargs["persistent_workers"] = True
+        kwargs["prefetch_factor"] = 2
+    return kwargs
 
 
 @torch.no_grad()
 def score_manifest(model, manifest_path, corpus, data_root, device, sr, dur,
-                   max_items, use_amp):
+                   max_items, use_amp, batch_size, num_workers):
     rows = read_manifest(manifest_path, corpora=[corpus])
     if max_items and len(rows) > max_items:
         import random
@@ -38,12 +49,21 @@ def score_manifest(model, manifest_path, corpus, data_root, device, sr, dur,
                              corpus_vocab={corpus: 0},
                              bona_source_vocab={src: i for i, src in
                                                 enumerate(sorted({x.bona_fide_source for x in rows}))})
-    loader = DataLoader(ds, batch_size=16, shuffle=False, num_workers=2,
-                        collate_fn=collate_unified)
+    loader = DataLoader(
+        ds, batch_size=batch_size, shuffle=False, collate_fn=collate_unified,
+        **_loader_kwargs(num_workers, device))
     labels, scores, embs, bona_src = [], [], [], []
-    for batch in loader:
-        wav = batch["waveform"].to(device)
-        with torch.cuda.amp.autocast(enabled=use_amp):
+    total = len(loader) if hasattr(loader, "__len__") else None
+    for batch in tqdm(
+        loader,
+        total=total,
+        desc=f"score {corpus}",
+        unit="batch",
+        dynamic_ncols=True,
+        leave=False,
+    ):
+        wav = batch["waveform"].to(device, non_blocking=True)
+        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
             out = model(wav, grl_lambda=0.0)
         labels += batch["target_long"].tolist()
         scores += torch.sigmoid(out["spoof_logit"]).float().cpu().tolist()
@@ -54,24 +74,36 @@ def score_manifest(model, manifest_path, corpus, data_root, device, sr, dur,
             np.array(bona_src))
 
 
-def threshold_from_dev(model, dev_manifests, data_root, device, sr, dur, use_amp):
+def threshold_from_dev(model, dev_manifests, data_root, device, sr, dur, use_amp, batch_size, num_workers):
     """Pick the EER-threshold on pooled training-corpus dev (honest protocol)."""
     all_lab, all_sc = [], []
     for corpus, mp in dev_manifests.items():
         rows = read_manifest(mp, splits=["val"], corpora=[corpus])
         if not rows:
             continue
+        if len({r.target for r in rows}) < 2:
+            print(f"[cross_test] skipping {corpus} dev threshold rows: single-class split")
+            continue
         import random
         random.Random(7).shuffle(rows); rows = rows[:1000]
         ds = UnifiedAudioDataset(rows, data_root, sample_rate=sr, duration_seconds=dur,
                                  random_crop=False, corpus_vocab={corpus: 0},
                                  bona_source_vocab={"x": 0})
-        loader = DataLoader(ds, batch_size=16, shuffle=False, num_workers=2,
-                            collate_fn=collate_unified)
+        loader = DataLoader(
+            ds, batch_size=batch_size, shuffle=False, collate_fn=collate_unified,
+            **_loader_kwargs(num_workers, device))
         with torch.no_grad():
-            for batch in loader:
-                wav = batch["waveform"].to(device)
-                with torch.cuda.amp.autocast(enabled=use_amp):
+            total = len(loader) if hasattr(loader, "__len__") else None
+            for batch in tqdm(
+                loader,
+                total=total,
+                desc=f"threshold {corpus}",
+                unit="batch",
+                dynamic_ncols=True,
+                leave=False,
+            ):
+                wav = batch["waveform"].to(device, non_blocking=True)
+                with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                     out = model(wav, grl_lambda=0.0)
                 all_lab += batch["target_long"].tolist()
                 all_sc += torch.sigmoid(out["spoof_logit"]).float().cpu().tolist()
@@ -95,6 +127,8 @@ def main():
     ap.add_argument("--dev-corpora", nargs="+", default=["diffssd", "fakeorreal", "asvspoof5"])
     ap.add_argument("--sample-rate", type=int, default=16000)
     ap.add_argument("--duration", type=float, default=4.0)
+    ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument("--num-workers", type=int, default=4)
     ap.add_argument("--max-items", type=int, default=0, help="0 = all")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
@@ -102,6 +136,7 @@ def main():
     import yaml
     cfg = yaml.safe_load(open(args.model_config))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    describe_device(device)
     use_amp = device.type == "cuda"
 
     model = AudioShieldX(cfg).to(device).eval()
@@ -111,7 +146,8 @@ def main():
 
     dev_manifests = {c: Path(args.manifest_dir) / f"{c}.csv" for c in args.dev_corpora}
     thr = threshold_from_dev(model, dev_manifests, args.data_root, device,
-                             args.sample_rate, args.duration, use_amp)
+                             args.sample_rate, args.duration, use_amp,
+                             args.batch_size, args.num_workers)
     print(f"dev-EER threshold = {thr:.4f}")
 
     # score every held-out corpus once; cache for all analyses
@@ -119,13 +155,14 @@ def main():
     print("\n=== PER-CORPUS HELD-OUT METRICS ===")
     print(f"{'corpus':12s} {'EER':>8s} {'BAC':>8s} {'ECE':>8s}  n")
     table = {}
-    for c in args.corpora:
+    for c in tqdm(args.corpora, desc="held-out corpora", unit="corpus", dynamic_ncols=True):
         mp = Path(args.manifest_dir) / f"{c}.csv"
         if not mp.exists():
             print(f"{c:12s} NO MANIFEST"); continue
         lab, sc, emb, bsrc = score_manifest(model, mp, c, args.data_root, device,
                                              args.sample_rate, args.duration,
-                                             args.max_items, use_amp)
+                                             args.max_items, use_amp,
+                                             args.batch_size, args.num_workers)
         cache[c] = (lab, sc, emb, bsrc)
         if len(set(lab)) < 2:
             print(f"{c:12s} single-class (bona-only); skipping EER")
@@ -181,7 +218,7 @@ def main():
             from sklearn.preprocessing import StandardScaler
             from sklearn.model_selection import cross_val_score
             Xn = StandardScaler().fit_transform(X)
-            clf = LogisticRegression(max_iter=2000, multi_class="auto")
+            clf = LogisticRegression(max_iter=2000)
             probe_acc = float(cross_val_score(clf, Xn, y, cv=3).mean())
             chance = 1.0 / len(set(y))
             print(f"probe acc = {probe_acc:.4f}  (chance = {chance:.4f}, {len(set(y))} domains)")

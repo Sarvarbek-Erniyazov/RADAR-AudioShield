@@ -62,7 +62,7 @@ def domain_subspace(X, y, k=3):
     from sklearn.linear_model import LogisticRegression
     Xs = StandardScaler().fit_transform(X)
     # A: probe weight rows -> orthonormalize
-    clf = LogisticRegression(max_iter=2000, multi_class="multinomial")
+    clf = LogisticRegression(max_iter=2000)
     clf.fit(Xs, y)
     Wd = clf.coef_                      # (C,256)
     Ua,_ = np.linalg.qr(Wd.T)           # (256, C)

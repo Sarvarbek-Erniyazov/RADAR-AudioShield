@@ -11,7 +11,6 @@ import os
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-import math
 import torch
 from torch import nn
 from transformers import AutoModel
@@ -38,6 +37,8 @@ class LayerWeightedSSL(nn.Module):
             print(f"[ssl] num_hidden_states {num_hidden_states} -> {actual_hidden_states} "
                   f"(from {backbone_name} config)")
         self.num_hidden_states = actual_hidden_states
+        self.layer_weight_init_center = int(init_center)
+        self.layer_weight_init_band = tuple(int(x) for x in init_band)
         self.frozen = freeze
         if freeze:
             for p in self.backbone.parameters():
@@ -45,9 +46,9 @@ class LayerWeightedSSL(nn.Module):
             self.backbone.eval()
 
         # softmax layer weights, initialized as a Gaussian-ish band around center
-        w0 = torch.full((num_hidden_states,), -10.0)
+        w0 = torch.full((actual_hidden_states,), -10.0)
         lo, hi = init_band
-        for i in range(num_hidden_states):
+        for i in range(actual_hidden_states):
             if lo <= i <= hi:
                 w0[i] = -((i - init_center) ** 2) / (2.0 * init_temp ** 2)
         self.layer_logits = nn.Parameter(w0)

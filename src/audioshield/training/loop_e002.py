@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from itertools import islice
 
 import torch
+from tqdm.auto import tqdm
 
 from ..losses.classification import spoof_bce
 from ..losses.consistency import consistency_loss
@@ -25,16 +27,27 @@ def train_one_epoch_e002(model, loader, optimizer, scaler, device, cfg,
     xc_temp = float(xc.get("temperature", 0.1))
     xc_cco = bool(xc.get("cross_corpus_only", True))
     totals = defaultdict(float); steps = 0
+    skipped_nonfinite_loss = 0
+    skipped_nonfinite_grad = 0
+    progress_every = int(cfg.get("train", {}).get("progress_every", 25))
+    total = max_steps or (len(loader) if hasattr(loader, "__len__") else None)
 
-    for bi, batch in enumerate(loader):
-        if max_steps and bi >= max_steps:
-            break
-        wav = batch["waveform"].to(device)
-        wav_deg = batch["waveform_deg"].to(device)
-        target = batch["target_long"].to(device)
-        corpus_id = batch["corpus_id"].to(device)
+    iterable = islice(loader, max_steps) if max_steps else loader
+    progress = tqdm(
+        enumerate(iterable),
+        total=total,
+        desc="train",
+        unit="batch",
+        dynamic_ncols=True,
+        leave=False,
+    )
+    for bi, batch in progress:
+        wav = batch["waveform"].to(device, non_blocking=True)
+        wav_deg = batch["waveform_deg"].to(device, non_blocking=True)
+        target = batch["target_long"].to(device, non_blocking=True)
+        corpus_id = batch["corpus_id"].to(device, non_blocking=True)
 
-        with torch.cuda.amp.autocast(enabled=use_amp):
+        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
             out = model(wav, grl_lambda=0.0)
             out_deg = model(wav_deg, grl_lambda=0.0)
 
@@ -61,12 +74,14 @@ def train_one_epoch_e002(model, loader, optimizer, scaler, device, cfg,
 
         optimizer.zero_grad(set_to_none=True)
         if not torch.isfinite(loss):
+            skipped_nonfinite_loss += 1
             continue
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
         gnorm = torch.nn.utils.clip_grad_norm_(
             [p for p in model.parameters() if p.requires_grad], 5.0)
         if not torch.isfinite(gnorm):
+            skipped_nonfinite_grad += 1
             optimizer.zero_grad(set_to_none=True)
             scaler.update()
             continue
@@ -77,12 +92,28 @@ def train_one_epoch_e002(model, loader, optimizer, scaler, device, cfg,
         totals["con"] += float(l_con.detach())
         totals["xc"] += float(l_xc.detach())
         steps += 1
+        if progress_every > 0 and (steps == 1 or steps % progress_every == 0):
+            progress.set_postfix(
+                loss=f"{float(loss.detach()):.4f}",
+                skip_loss=skipped_nonfinite_loss,
+                skip_grad=skipped_nonfinite_grad,
+            )
 
     if steps == 0:
         print("[e002][warn] epoch ran 0 steps (dataloader exhausted or worker died)", flush=True)
-        return {"loss": float("nan"), "cls": float("nan"), "con": float("nan"), "xc": float("nan"), "steps": 0}
+        return {
+            "loss": float("nan"),
+            "cls": float("nan"),
+            "con": float("nan"),
+            "xc": float("nan"),
+            "steps": 0,
+            "skipped_nonfinite_loss": skipped_nonfinite_loss,
+            "skipped_nonfinite_grad": skipped_nonfinite_grad,
+        }
     out = {k: v / steps for k, v in totals.items()}
     out["steps"] = steps
+    out["skipped_nonfinite_loss"] = skipped_nonfinite_loss
+    out["skipped_nonfinite_grad"] = skipped_nonfinite_grad
     return out
 
 
@@ -94,17 +125,29 @@ def probe_corpus_during_train(model, loaders_by_corpus, device, use_amp, max_per
     import numpy as np
     model.eval()
     X, y = [], []
-    # collect a capped sample of embeddings + corpus ids across dev loaders
-    seen = {}
     with torch.no_grad():
-        for corpus, loader in loaders_by_corpus.items():
+        for corpus, loader in tqdm(
+            loaders_by_corpus.items(),
+            desc="probe corpora",
+            unit="corpus",
+            dynamic_ncols=True,
+            leave=False,
+        ):
             if corpus.endswith("_deg"):
                 continue  # use clean dev only, one view per corpus
             n = 0
-            for batch in loader:
-                wav = batch["waveform"].to(device)
+            total = len(loader) if hasattr(loader, "__len__") else None
+            for batch in tqdm(
+                loader,
+                total=total,
+                desc=f"probe {corpus}",
+                unit="batch",
+                dynamic_ncols=True,
+                leave=False,
+            ):
+                wav = batch["waveform"].to(device, non_blocking=True)
                 cid = batch["corpus_id"].tolist()
-                with torch.cuda.amp.autocast(enabled=use_amp):
+                with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                     out = model(wav, grl_lambda=0.0)
                 emb = out["embedding"].float().cpu().numpy()
                 X.append(emb); y.extend(cid)
@@ -121,7 +164,7 @@ def probe_corpus_during_train(model, loaders_by_corpus, device, use_amp, max_per
         from sklearn.linear_model import LogisticRegression
         from sklearn.model_selection import cross_val_score
         Xn = StandardScaler().fit_transform(X)
-        clf = LogisticRegression(max_iter=2000, multi_class="auto")
+        clf = LogisticRegression(max_iter=2000)
         return float(cross_val_score(clf, Xn, y, cv=3).mean())
     except Exception as e:
         print(f"[probe][warn] {e}")
@@ -132,11 +175,25 @@ def validate_e002(model, loaders_by_corpus, device, use_amp: bool):
     from ..evaluation.metrics import binary_metrics
     model.eval()
     per_corpus = {}
-    for corpus, loader in loaders_by_corpus.items():
+    for corpus, loader in tqdm(
+        loaders_by_corpus.items(),
+        desc="validate corpora",
+        unit="corpus",
+        dynamic_ncols=True,
+        leave=False,
+    ):
         labels, scores = [], []
-        for batch in loader:
-            wav = batch["waveform"].to(device)
-            with torch.cuda.amp.autocast(enabled=use_amp):
+        total = len(loader) if hasattr(loader, "__len__") else None
+        for batch in tqdm(
+            loader,
+            total=total,
+            desc=f"validate {corpus}",
+            unit="batch",
+            dynamic_ncols=True,
+            leave=False,
+        ):
+            wav = batch["waveform"].to(device, non_blocking=True)
+            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                 out = model(wav, grl_lambda=0.0)
             labels += batch["target_long"].tolist()
             scores += torch.sigmoid(out["spoof_logit"]).float().cpu().tolist()

@@ -23,6 +23,7 @@ from audioshield.training.optim import build_optimizer
 from audioshield.training.loop import train_one_epoch, validate
 from audioshield.training.early_stopping import MeanCrossCorpusStopper, mean_cross_corpus_eer
 from audioshield.losses.latent_aug import CalasController
+from audioshield.utils.runtime import describe_device
 
 
 def load_cfg(exp_path, model_path):
@@ -74,6 +75,7 @@ def main():
     cfg = load_cfg(args.exp_config, args.model_config)
     out = Path(args.output_dir); out.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    describe_device(device)
     use_amp = device.type == "cuda" and not cfg["train"].get("no_amp", False)
 
     train_rows = build_train_rows(cfg)
@@ -100,7 +102,7 @@ def main():
     model = AudioShieldX(cfg).to(device)
     optimizer = build_optimizer(model, head_lr=cfg["train"]["head_lr"],
                                 weight_decay=cfg["train"]["weight_decay"])
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     calas = CalasController(**cfg["calas"])
     stopper = MeanCrossCorpusStopper(patience=cfg["train"]["early_stopping_patience"])
 

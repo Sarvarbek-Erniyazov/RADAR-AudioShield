@@ -28,9 +28,12 @@ train:
   weight_decay: 1.0e-4
   epochs: 30
   early_stopping_patience: 6
-  num_workers: 0
-  max_val_items_per_corpus: 2000
-  max_steps_per_epoch: 1500
-  unfreeze_top_k: 6
-  no_amp: false
-  probe_every_epoch: true
+  num_workers: 8
+  val_num_workers: 2
+  max_val_items_per_corpus: 500
+  max_steps_per_epoch: 750
+  unfreeze_strategy: weighted_band
+  unfreeze_layer_band: [8, 11]
+  unfreeze_top_k: 4
+  no_amp: true
+  probe_every_epoch: false

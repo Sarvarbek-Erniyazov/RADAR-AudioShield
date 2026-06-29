@@ -133,7 +133,7 @@ def main():
     maybe_unfreeze_top_k(model, int(cfg["train"].get("unfreeze_top_k", 0)))
     optimizer = build_optimizer(model, head_lr=cfg["train"]["head_lr"],
                                 weight_decay=cfg["train"]["weight_decay"])
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     stopper = MeanCrossCorpusStopper(patience=cfg["train"]["early_stopping_patience"])
 
     print(f"device={device} amp={use_amp} train_rows={len(train_rows)} "

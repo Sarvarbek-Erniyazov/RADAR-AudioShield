@@ -13,11 +13,13 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from tqdm.auto import tqdm
 from transformers import AutoModel
 
 from audioshield.data.audio_io import load_audio, to_mono, resample_linear, crop_or_pad
 from audioshield.data.manifest import read_manifest
 from audioshield.evaluation.metrics import equal_error_rate
+from audioshield.utils.runtime import describe_device
 
 
 def balanced_subsample(rows, n_per_class, seed=13):
@@ -57,15 +59,14 @@ def extract(model_name, manifests, data_root, cache_dir, sr, dur, n_train, n_val
                 continue
             rows = balanced_subsample(rows, cap)
             print(f"[{tag}] {corpus}/{split}: {len(rows)} items")
-            for i, r in enumerate(rows):
+            desc = f"extract {tag} {corpus}/{split}"
+            for r in tqdm(rows, desc=desc, unit="utt", dynamic_ncols=True):
                 wav, osr = load_audio(Path(data_root) / r.path)
                 wav = resample_linear(to_mono(wav), osr, sr)
                 feats.append(pool_layers(model, wav, device, n_samples))
                 labels.append(r.target)
                 corpora.append(corpus)
                 splits.append(split)
-                if i % 500 == 0 and i:
-                    print(f"  {corpus}/{split} {i}/{len(rows)}")
     feats = np.stack(feats)
     labels = np.array(labels)
     corpora = np.array(corpora)
@@ -86,7 +87,7 @@ def fit(tag, feats, labels, corpora, splits):
     tr = splits == "train"
     dv = splits == "val"
     res = {}
-    for layer in range(L):
+    for layer in tqdm(range(L), desc=f"fit layers {tag}", unit="layer", dynamic_ncols=True):
         scaler = StandardScaler().fit(feats[tr, layer])
         clf = LogisticRegression(C=1.0, max_iter=2000)
         clf.fit(scaler.transform(feats[tr, layer]), labels[tr])
@@ -122,6 +123,7 @@ def main():
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    describe_device(device)
     manifests = {c: Path(args.manifest_dir) / f"{c}.csv" for c in args.corpora}
     summary = {}
     for model_name in args.models:

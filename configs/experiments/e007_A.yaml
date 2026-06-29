@@ -24,9 +24,12 @@ train:
   weight_decay: 1.0e-4
   epochs: 30
   early_stopping_patience: 6
-  num_workers: 0
-  max_val_items_per_corpus: 2000
-  max_steps_per_epoch: 1500 # conserves GPU time vs 2000
-  unfreeze_top_k: 6         # PLACEHOLDER — set via --override after memory smoke
-  no_amp: false             # 24 GB: AMP likely safe; verify in smoke (set true if NaN)
-  probe_every_epoch: true
+  num_workers: 8
+  val_num_workers: 2
+  max_val_items_per_corpus: 500
+  max_steps_per_epoch: 750  # raise to 1500/2000 for final runs
+  unfreeze_strategy: weighted_band
+  unfreeze_layer_band: [8, 11]
+  unfreeze_top_k: 4         # hidden states 8-11 -> encoder layers 7-10
+  no_amp: true              # AMP produced non-finite gradients in smoke; override only after checking skip counters
+  probe_every_epoch: false

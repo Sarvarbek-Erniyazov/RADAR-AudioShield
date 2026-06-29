@@ -22,9 +22,15 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 from audioshield.data.manifest import read_manifest
 from audioshield.data.unified_dataset import UnifiedAudioDataset, collate_unified
 from audioshield.models.detector import AudioShieldX
-from audioshield.training.optim import build_optimizer, build_optimizer_stage2, unfreeze_top_k
+from audioshield.training.optim import (
+    build_optimizer,
+    build_optimizer_stage2,
+    unfreeze_top_k,
+    unfreeze_weighted_band,
+)
 from audioshield.training.loop_e002 import train_one_epoch_e002, validate_e002, probe_corpus_during_train
 from audioshield.training.early_stopping import MeanCrossCorpusStopper, mean_cross_corpus_eer
+from audioshield.utils.runtime import describe_device
 
 
 def load_cfg(exp_path, model_path):
@@ -40,30 +46,41 @@ def _deg_collate(items):
     return b
 
 
-def maybe_unfreeze_top_k(model, k: int):
+def _loader_kwargs(num_workers: int, device: torch.device, persistent: bool = True) -> dict:
+    num_workers = int(num_workers)
+    kwargs = {"num_workers": num_workers, "pin_memory": device.type == "cuda"}
+    if num_workers > 0:
+        kwargs["persistent_workers"] = persistent
+        kwargs["prefetch_factor"] = 2
+    return kwargs
+
+
+def _configure_backbone_finetuning(model, cfg: dict) -> bool:
+    train_cfg = cfg["train"]
+    k = int(train_cfg.get("unfreeze_top_k", 0))
     if k <= 0:
         print("[e002] backbone fully frozen (unfreeze_top_k=0)")
-        return
-    enc = None; chosen = None
-    for path in ["backbone.model.encoder.layers", "backbone.encoder.layers",
-                 "ssl.model.encoder.layers", "ssl_backbone.model.encoder.layers"]:
-        obj = model
-        try:
-            for attr in path.split("."):
-                obj = getattr(obj, attr)
-            enc = obj; chosen = path; break
-        except AttributeError:
-            continue
-    if enc is None:
-        print("[e002][warn] could not locate encoder.layers; staying frozen. "
-              "Paste ssl_backbone.py to hardcode the path.")
-        return
-    n = len(enc)
-    for i, layer in enumerate(enc):
-        req = i >= (n - k)
-        for p in layer.parameters():
-            p.requires_grad = req
-    print(f"[e002] unfroze top {k}/{n} backbone layers via {chosen}")
+        return False
+
+    strategy = str(train_cfg.get("unfreeze_strategy", "top_k")).lower()
+    if strategy in {"weighted_band", "layer_weight_band", "ssl_band"}:
+        model_cfg = cfg.get("model", {})
+        band = train_cfg.get("unfreeze_layer_band", model_cfg.get("layer_weight_init_band", [8, 11]))
+        center = int(model_cfg.get("layer_weight_init_center", (int(band[0]) + int(band[1])) // 2))
+        plan = unfreeze_weighted_band(model, band, k=k, center=center)
+        hs_lo, hs_hi = plan["hidden_state_window"]
+        enc_layers = plan["encoder_indices"]
+        print(
+            "[e002] stage2: unfreeze_strategy=weighted_band "
+            f"hidden_states={hs_lo}-{hs_hi} -> encoder.layers={enc_layers}"
+        )
+    elif strategy == "top_k":
+        unfreeze_top_k(model, k)
+        print(f"[e002] stage2: unfreeze_strategy=top_k top_layers={k}")
+    else:
+        raise ValueError(f"Unknown train.unfreeze_strategy={strategy!r}")
+
+    return True
 
 
 def make_balanced_sampler(train_rows, num_samples):
@@ -116,6 +133,7 @@ def main():
         print(f"[override] {key} = {pv!r}")
     out = Path(args.output_dir); out.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    describe_device(device)
     use_amp = device.type == "cuda" and not cfg["train"].get("no_amp", False)
 
     exp = cfg["experiment"]
@@ -140,18 +158,23 @@ def main():
               f"{len(set(r.corpus for r in train_rows))} corpora")
         train_loader = DataLoader(
             train_ds, batch_size=cfg["train"]["batch_size"], sampler=sampler,
-            num_workers=cfg["train"].get("num_workers", 4),
-            collate_fn=collate_unified, drop_last=True)
+            collate_fn=collate_unified, drop_last=True,
+            **_loader_kwargs(cfg["train"].get("num_workers", 4), device))
     else:
         train_loader = DataLoader(
             train_ds, batch_size=cfg["train"]["batch_size"], shuffle=True,
-            num_workers=cfg["train"].get("num_workers", 4),
-            collate_fn=collate_unified, drop_last=True)
+            collate_fn=collate_unified, drop_last=True,
+            **_loader_kwargs(cfg["train"].get("num_workers", 4), device))
 
     dev_loaders = {}
+    val_workers = int(cfg["train"].get("val_num_workers", min(2, int(cfg["train"].get("num_workers", 4)))))
+    val_batch_size = int(cfg["train"].get("val_batch_size", 16))
     for c in train_corpora:
         rows = read_manifest(Path(md) / f"{c}.csv", splits=["val"], corpora=[c])
         if not rows:
+            continue
+        if len({r.target for r in rows}) < 2:
+            print(f"[e002] skipping {c} dev EER: single-class validation split")
             continue
         cap = cfg["train"].get("max_val_items_per_corpus", 2000)
         if cap and len(rows) > cap:
@@ -159,30 +182,32 @@ def main():
         ds_clean = UnifiedAudioDataset(rows, exp["data_root"], sample_rate=exp["sample_rate"],
                                        duration_seconds=exp["duration_seconds"], random_crop=False,
                                        corpus_vocab=corpus_vocab, bona_source_vocab=bona_vocab)
-        dev_loaders[c + "_clean"] = DataLoader(ds_clean, batch_size=16, shuffle=False,
-                                               num_workers=0, collate_fn=collate_unified)
+        dev_loaders[c + "_clean"] = DataLoader(
+            ds_clean, batch_size=val_batch_size, shuffle=False,
+            collate_fn=collate_unified,
+            **_loader_kwargs(val_workers, device))
         ds_deg = UnifiedAudioDataset(rows, exp["data_root"], sample_rate=exp["sample_rate"],
                                      duration_seconds=exp["duration_seconds"], random_crop=False,
                                      corpus_vocab=corpus_vocab, bona_source_vocab=bona_vocab,
                                      degrade=True)
-        dev_loaders[c + "_deg"] = DataLoader(ds_deg, batch_size=16, shuffle=False,
-                                             num_workers=0, collate_fn=_deg_collate)
+        dev_loaders[c + "_deg"] = DataLoader(
+            ds_deg, batch_size=val_batch_size, shuffle=False,
+            collate_fn=_deg_collate,
+            **_loader_kwargs(val_workers, device))
 
     model = AudioShieldX(cfg).to(device)
-    k = int(cfg["train"].get("unfreeze_top_k", 0))
-    if k > 0:
-        unfreeze_top_k(model, k)   # correct path + flips ssl.frozen=False
+    if _configure_backbone_finetuning(model, cfg):
         try:
-            model.ssl.backbone.gradient_checkpointing_enable(
-                gradient_checkpointing_kwargs={"use_reentrant": False})
-            print("[e002] gradient checkpointing enabled on backbone")
+            if cfg["train"].get("gradient_checkpointing", True):
+                model.ssl.backbone.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs={"use_reentrant": False})
+                print("[e002] gradient checkpointing enabled on backbone")
         except Exception as e:
             print(f"[e002][warn] could not enable gradient checkpointing: {e}")
         bb_lr = float(cfg["train"].get("backbone_lr", 1e-6))
         n_bb = sum(p.numel() for n,p in model.named_parameters()
                    if p.requires_grad and n.startswith("ssl.backbone"))
-        print(f"[e002] stage2: unfroze top {k} layers, backbone_lr={bb_lr}, "
-              f"trainable backbone params={n_bb:,}")
+        print(f"[e002] stage2: backbone_lr={bb_lr}, trainable backbone params={n_bb:,}")
         optimizer = build_optimizer_stage2(
             model, head_lr=cfg["train"]["head_lr"],
             backbone_lr=bb_lr, weight_decay=cfg["train"]["weight_decay"])
@@ -190,7 +215,7 @@ def main():
         print("[e002] backbone fully frozen (unfreeze_top_k=0)")
         optimizer = build_optimizer(model, head_lr=cfg["train"]["head_lr"],
                                     weight_decay=cfg["train"]["weight_decay"])
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     stopper = MeanCrossCorpusStopper(patience=cfg["train"]["early_stopping_patience"])
 
     print(f"device={device} amp={use_amp} train_rows={len(train_rows)} "
@@ -217,7 +242,7 @@ def main():
     best = float("inf")
     start_epoch = 1
     if args.resume:
-        rk = torch.load(args.resume, map_location=device)
+        rk = torch.load(args.resume, map_location=device, weights_only=False)
         model.load_state_dict(rk["model"])
         if "optimizer" in rk:
             try:
@@ -246,14 +271,18 @@ def main():
         mean_eer = mean_cross_corpus_eer(deg or per)
         improved, stop = stopper.update(mean_eer, epoch)
         probe_str = f"probe={probe_acc:.4f} " if probe_acc is not None else ""
+        skip_str = (
+            f"skip_loss={terms.get('skipped_nonfinite_loss', 0)} "
+            f"skip_grad={terms.get('skipped_nonfinite_grad', 0)} "
+        )
         print(f"epoch={epoch} dt={time.time()-t0:.0f}s "
               f"steps={terms.get('steps','?')} loss={terms.get('loss',float('nan')):.4f} "
               f"cls={terms.get('cls',float('nan')):.4f} con={terms.get('con',float('nan')):.4f} "
               f"xc={terms.get('xc',float('nan')):.4f} "
-              f"mean_deg_dev_eer={mean_eer:.4f} {probe_str}"
+              f"mean_deg_dev_eer={mean_eer:.4f} {probe_str}{skip_str}"
               f"per={ {k: round(v,4) for k,v in per.items()} }", flush=True)
         expected = cfg["train"].get("max_steps_per_epoch", 0) or (len(train_ds) // cfg["train"]["batch_size"])
-        if terms.get("steps", 0) < 0.8 * expected:
+        if terms.get("steps", 0) < 0.5 * expected:
             print(f"[e002][ABORT] epoch {epoch} ran {terms.get('steps')} steps, "
                   f"expected ~{expected}. Dataloader problem -- not saving checkpoint, stopping.", flush=True)
             break

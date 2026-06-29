@@ -71,11 +71,25 @@ class UnifiedAudioDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         row = self.rows[index]
-        waveform, orig_sr = load_audio(self._resolve(row.path))
-        mono = to_mono(waveform)
-        mono = resample_linear(mono, orig_sr, self.sample_rate)
-        mono = crop_or_pad(mono, self.num_samples, random_crop=self.random_crop)
-        mono = mono.clamp(-1.0, 1.0)
+        last_err = None
+        for _offset in range(0, 50):
+            try_row = self.rows[(index + _offset) % len(self.rows)]
+            try:
+                waveform, orig_sr = load_audio(self._resolve(try_row.path))
+                mono = to_mono(waveform)
+                mono = resample_linear(mono, orig_sr, self.sample_rate)
+                mono = crop_or_pad(mono, self.num_samples, random_crop=self.random_crop)
+                mono = mono.clamp(-1.0, 1.0)
+                row = try_row
+                break
+            except Exception as _e:
+                last_err = _e
+                continue
+        else:
+            raise RuntimeError(
+                f"[unified_dataset] 50 consecutive unreadable files from index {index}; "
+                f"last error: {last_err}"
+            )
 
         item = {
             "waveform": mono,

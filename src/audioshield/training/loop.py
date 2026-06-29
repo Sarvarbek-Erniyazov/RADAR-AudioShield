@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from itertools import islice
 
 import torch
+from tqdm.auto import tqdm
 
 from ..losses.classification import spoof_bce
 from ..losses.prototype import aam_prototype_loss, spoof_prototype_regularizers
@@ -20,16 +22,25 @@ def train_one_epoch(model, loader, optimizer, scaler, device, cfg, calas: CalasC
     w = cfg["loss_weights"]
     totals = defaultdict(float); steps = 0
     corpus_margin_accum = defaultdict(list)
+    total = max_steps or (len(loader) if hasattr(loader, "__len__") else None)
+    iterable = islice(loader, max_steps) if max_steps else loader
+    progress_every = int(cfg.get("train", {}).get("progress_every", 25))
 
-    for bi, batch in enumerate(loader):
-        if max_steps and bi >= max_steps:
-            break
-        wav = batch["waveform"].to(device)
-        target = batch["target_long"].to(device)
-        dom = batch["bona_source_id"].to(device)
+    progress = tqdm(
+        enumerate(iterable),
+        total=total,
+        desc="train",
+        unit="batch",
+        dynamic_ncols=True,
+        leave=False,
+    )
+    for bi, batch in progress:
+        wav = batch["waveform"].to(device, non_blocking=True)
+        target = batch["target_long"].to(device, non_blocking=True)
+        dom = batch["bona_source_id"].to(device, non_blocking=True)
         corpora = batch["corpus"]
 
-        with torch.cuda.amp.autocast(enabled=use_amp):
+        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
             out = model(wav, grl_lambda=grl_lambda)
             out_aug = model(wav + 0.01 * torch.randn_like(wav), grl_lambda=0.0)
 
@@ -85,6 +96,8 @@ def train_one_epoch(model, loader, optimizer, scaler, device, cfg, calas: CalasC
         for k, v in bmi_log.items():
             totals[k] += v
         steps += 1
+        if progress_every > 0 and (steps == 1 or steps % progress_every == 0):
+            progress.set_postfix(loss=f"{float(loss.detach()):.4f}", grl=f"{grl_lambda:.3f}")
 
     calas.update({c: sum(v)/len(v) for c, v in corpus_margin_accum.items() if v})
     return {k: v / max(1, steps) for k, v in totals.items()}
@@ -95,11 +108,25 @@ def validate(model, loaders_by_corpus, device, use_amp: bool):
     """loaders_by_corpus: {corpus: DataLoader}. Returns per-corpus EER dict."""
     model.eval()
     per_corpus = {}
-    for corpus, loader in loaders_by_corpus.items():
+    for corpus, loader in tqdm(
+        loaders_by_corpus.items(),
+        desc="validate corpora",
+        unit="corpus",
+        dynamic_ncols=True,
+        leave=False,
+    ):
         labels, scores = [], []
-        for batch in loader:
-            wav = batch["waveform"].to(device)
-            with torch.cuda.amp.autocast(enabled=use_amp):
+        total = len(loader) if hasattr(loader, "__len__") else None
+        for batch in tqdm(
+            loader,
+            total=total,
+            desc=f"validate {corpus}",
+            unit="batch",
+            dynamic_ncols=True,
+            leave=False,
+        ):
+            wav = batch["waveform"].to(device, non_blocking=True)
+            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                 out = model(wav, grl_lambda=0.0)
             labels += batch["target_long"].tolist()
             scores += torch.sigmoid(out["spoof_logit"]).float().cpu().tolist()
