@@ -20,6 +20,9 @@ xc_contrastive:
   temperature: 0.1
   cross_corpus_only: true
   use_projection_head: true
+model:
+  backbone_name: facebook/wav2vec2-xls-r-300m
+  contrastive_proj_dim: 128
 train:
   batch_size: 12            # XLS-R-300M larger; smaller placeholder
   balanced_sampler: true

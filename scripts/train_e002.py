@@ -34,9 +34,16 @@ from audioshield.utils.runtime import describe_device
 
 
 def load_cfg(exp_path, model_path):
-    cfg = yaml.safe_load(open(exp_path))
-    cfg.update(yaml.safe_load(open(model_path)))
-    return cfg
+    def deep_update(base, override):
+        for key, value in override.items():
+            if isinstance(value, dict) and isinstance(base.get(key), dict):
+                deep_update(base[key], value)
+            else:
+                base[key] = value
+        return base
+
+    cfg = yaml.safe_load(open(model_path))
+    return deep_update(cfg, yaml.safe_load(open(exp_path)))
 
 
 def _deg_collate(items):
@@ -196,6 +203,20 @@ def main():
             **_loader_kwargs(val_workers, device))
 
     model = AudioShieldX(cfg).to(device)
+    xc_cfg = cfg.get("xc_contrastive", {})
+    if xc_cfg.get("enabled", False) and float(xc_cfg.get("lambda_xc", 0.0)) > 0.0:
+        if xc_cfg.get("use_projection_head", False):
+            if model.contrastive_proj is None:
+                raise ValueError(
+                    "xc_contrastive.use_projection_head=true requires "
+                    "model.contrastive_proj_dim > 0"
+                )
+            print(
+                "[e002] contrastive loss uses projection head "
+                f"dim={cfg['model'].get('contrastive_proj_dim')}"
+            )
+        else:
+            print("[e002] contrastive loss uses main embedding")
     if _configure_backbone_finetuning(model, cfg):
         try:
             if cfg["train"].get("gradient_checkpointing", True):
@@ -275,11 +296,17 @@ def main():
             f"skip_loss={terms.get('skipped_nonfinite_loss', 0)} "
             f"skip_grad={terms.get('skipped_nonfinite_grad', 0)} "
         )
+        xc_str = ""
+        if cfg.get("xc_contrastive", {}).get("enabled", False):
+            xc_str = (
+                f"xc_npos={terms.get('xc_npos', 0.0):.1f} "
+                f"xc_skip={terms.get('xc_skipped', 0.0):.3f} "
+            )
         print(f"epoch={epoch} dt={time.time()-t0:.0f}s "
               f"steps={terms.get('steps','?')} loss={terms.get('loss',float('nan')):.4f} "
               f"cls={terms.get('cls',float('nan')):.4f} con={terms.get('con',float('nan')):.4f} "
               f"xc={terms.get('xc',float('nan')):.4f} "
-              f"mean_deg_dev_eer={mean_eer:.4f} {probe_str}{skip_str}"
+              f"mean_deg_dev_eer={mean_eer:.4f} {probe_str}{skip_str}{xc_str}"
               f"per={ {k: round(v,4) for k,v in per.items()} }", flush=True)
         expected = cfg["train"].get("max_steps_per_epoch", 0) or (len(train_ds) // cfg["train"]["batch_size"])
         if terms.get("steps", 0) < 0.5 * expected:

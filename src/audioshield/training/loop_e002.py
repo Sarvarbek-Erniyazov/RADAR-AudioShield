@@ -26,6 +26,7 @@ def train_one_epoch_e002(model, loader, optimizer, scaler, device, cfg,
     w_xc = float(xc.get("lambda_xc", 0.0))
     xc_temp = float(xc.get("temperature", 0.1))
     xc_cco = bool(xc.get("cross_corpus_only", True))
+    xc_use_projection = bool(xc.get("use_projection_head", False))
     totals = defaultdict(float); steps = 0
     skipped_nonfinite_loss = 0
     skipped_nonfinite_grad = 0
@@ -65,8 +66,9 @@ def train_one_epoch_e002(model, loader, optimizer, scaler, device, cfg,
                 lambda_kl=lam_kl, lambda_emb=lam_emb, teacher=True)
 
             if xc_on and w_xc > 0.0:
+                xc_emb = out["contrastive_embedding"] if xc_use_projection else out["embedding"]
                 l_xc, xc_log = cross_corpus_supcon(
-                    out["embedding"], target, corpus_id,
+                    xc_emb, target, corpus_id,
                     temperature=xc_temp, cross_corpus_only=xc_cco)
             else:
                 l_xc = out["embedding"].sum() * 0.0; xc_log = {}
@@ -91,13 +93,19 @@ def train_one_epoch_e002(model, loader, optimizer, scaler, device, cfg,
         totals["cls"] += float(l_cls.detach())
         totals["con"] += float(l_con.detach())
         totals["xc"] += float(l_xc.detach())
+        for k, v in xc_log.items():
+            totals[k] += float(v)
         steps += 1
         if progress_every > 0 and (steps == 1 or steps % progress_every == 0):
-            progress.set_postfix(
+            postfix = dict(
                 loss=f"{float(loss.detach()):.4f}",
                 skip_loss=skipped_nonfinite_loss,
                 skip_grad=skipped_nonfinite_grad,
             )
+            if xc_on and w_xc > 0.0:
+                postfix["xc"] = f"{float(l_xc.detach()):.4f}"
+                postfix["xc_npos"] = int(xc_log.get("xc_npos", 0))
+            progress.set_postfix(**postfix)
 
     if steps == 0:
         print("[e002][warn] epoch ran 0 steps (dataloader exhausted or worker died)", flush=True)

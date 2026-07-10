@@ -1,0 +1,24 @@
+# AudioShield-X XLS-R 300M model config for e007-C.
+# Uses local Hugging Face cache only; ssl_backbone passes local_files_only=True.
+model:
+  backbone_name: facebook/wav2vec2-xls-r-300m
+  backbone_hidden: 1024
+  num_hidden_states: 25          # 24 transformer layers + embedding output
+  layer_weight_init_center: 10   # keep the WavLM-selected mid-layer prior for the controlled C arm
+  layer_weight_init_band: [8, 11]
+  layer_weight_init_temp: 1.0
+  freeze_backbone: true
+
+  pooling: attentive_stats
+  embedding_dim: 256
+  contrastive_proj_dim: 128
+
+  prototypes:
+    num_bona: 1
+    num_spoof: 8
+    aam_margin: 0.2
+    aam_scale: 20.0
+
+  bmi:
+    domain_critic_hidden: 128
+    num_bona_domains: 5

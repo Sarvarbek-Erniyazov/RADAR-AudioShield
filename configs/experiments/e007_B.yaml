@@ -20,6 +20,8 @@ xc_contrastive:
   temperature: 0.1
   cross_corpus_only: true
   use_projection_head: true   # enable the projection seam for SupCon
+model:
+  contrastive_proj_dim: 128
 train:
   batch_size: 16
   balanced_sampler: true
