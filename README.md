@@ -1,80 +1,74 @@
-# AudioShield — Cross-Corpus Audio Deepfake Detection
+# AudioShield - Cross-Corpus Audio Deepfake Detection
 
-A self-supervised audio deepfake detector built on a frozen **WavLM-Large** backbone, designed to generalize across corpora it was *not* trained on. Models are trained on multiple corpora and evaluated on three strictly held-out, real-world benchmarks: **In-the-Wild (ITW)**, **ReplayDF**, and **AI4T**.
-
-**Central finding:** corpus separability and cross-corpus generalization are *decoupled*. A linear corpus-identity probe stays at ~0.96–0.97 across every intervention, yet out-of-distribution (OOD) error varies widely (AI4T 0.470 → 0.231). Reducing corpus separability is neither achieved nor required for the OOD gains we observe. See [`RESULTS.md`](RESULTS.md) and [`analysis/drs/`](analysis/drs/).
+A self-supervised audio deepfake detector built on SSL speech backbones and
+evaluated on strictly held-out, real-world OOD corpora: In-the-Wild (ITW),
+ReplayDF, and AI4T.
 
 ## Status
 
-- ✅ Six controlled frozen-backbone experiments (e003 → e006)
-- ✅ Domain-Reliance Score analysis (`analysis/drs/`) — reliance is low and flat in the frozen regime
-- 🔜 Fine-tuning phase (**e007**), specified in [`docs/e007_finetuning_design.md`](docs/e007_finetuning_design.md), awaiting a ≥24 GB GPU
+- Six controlled frozen-backbone experiments are recorded (e003 -> e006).
+- Domain-Reliance Score analysis is recorded in `analysis/drs/`.
+- Fine-tuning phase e007 is complete: WavLM weighted-band CE control, WavLM
+  projected SupCon, and XLS-R transplanted-band arms were trained and
+  cross-tested.
 
-## Repository layout
+Single seed per condition; seeds are not yet plumbed. Comparisons are
+provisional pending Roadmap Step 6, 5-seed replication.
+
+## Repository Layout
 
 | Path | Contents |
 |------|----------|
-| `src/audioshield/` | The package: SSL backbone, layer weighting, pooling, heads, losses, training loop, evaluation |
-| `scripts/` | Entrypoints: training (`train_e002.py`), DRS analysis (`compute_drs.py`), manifest building |
-| `configs/experiments/` | One YAML per experiment (e003–e006, e007_A/B/C) |
-| `configs/models/`, `configs/datasets/` | Model architecture and dataset configs |
-| `manifests/` | Per-corpus CSV manifests (utt_id, path, label, split); paths are relative to `data_root` |
-| `experiments/` | Per-experiment **record**: config + cross-test result + training summary (no checkpoints) |
-| `analysis/drs/` | Domain-Reliance Score analysis and interpretation |
-| `analysis/logs/` | Cleaned training console logs |
-| `docs/` | Design docs and progress reports (`.md`) |
-| `legacy_biophys/` | Earlier BioPhys-HyperRADAR approach — **superseded, not maintained**, kept for provenance |
+| `src/audioshield/` | Package code: SSL backbone, layer weighting, pooling, heads, losses, training, evaluation |
+| `scripts/` | Entrypoints for training, DRS analysis, manifest building |
+| `configs/experiments/` | Experiment YAMLs, including e007_A/B/C |
+| `configs/models/` | Model configs, including WavLM and XLS-R e007 configs |
+| `manifests/` | Per-corpus CSV manifests with paths relative to `data_root` |
+| `experiments/` | Lightweight experiment records; checkpoints stay out of git |
+| `analysis/` | Audits, DRS outputs, cleaned logs |
+| `legacy_biophys/` | Superseded earlier BioPhys-HyperRADAR approach, kept for provenance |
 
 ## Setup
 
 ```bash
-pip install -e .                  # installs the `audioshield` package (uses pyproject.toml)
+pip install -e .
 pip install -r requirements.txt
 ```
 
-**Datasets are not in this repo.** Set `data_root` in each experiment config to your local dataset path. Training corpora: ASVspoof5, DiffSSD, FoR, VCTK. Held-out OOD: ITW, ReplayDF, AI4T.
+Datasets are not in this repo. Set `data_root` to the local dataset root.
+Training corpora: ASVspoof5, DiffSSD, FakeOrReal, VCTK. Held-out OOD corpora:
+ITW, ReplayDF, AI4T.
 
-## Reproducing the experiments
+## Reproducing A Cross-Test
 
 ```bash
-# Train a frozen experiment (e003–e006):
-python -u scripts/train_e002.py \
-    --exp-config configs/experiments/e006_xc_frozen_v1.yaml \
-    --output-dir runs/e006
-
-# Cross-test a checkpoint on the held-out OOD corpora:
 python -u -m audioshield.evaluation.cross_test \
-    --checkpoint runs/e006/best.pt --corpora inthewild replaydf ai4t
+  --checkpoint runs/e007_B_fresh/best.pt \
+  --data-root E:/AI_voice_detection \
+  --manifest-dir manifests \
+  --corpora inthewild replaydf ai4t \
+  --bootstrap-reps 1000 \
+  --out runs/e007_B_fresh_crosstest.json
 ```
 
-Each experiment's committed record (config, cross-test result, training summary) lives in `experiments/<name>/` — you can read the results without re-running anything.
+## Fine-Tuning Phase e007
 
-## Domain-Reliance analysis
+- e007-A: weighted-band backbone adaptation, cross-entropy only.
+- e007-B: e007-A plus projected cross-corpus class-conditional SupCon.
+- e007-C: e007-B with XLS-R backbone and transplanted WavLM layer band.
 
-```bash
-python -u scripts/compute_drs.py        # results + interpretation in analysis/drs/
-```
+## Results At A Glance
 
-The Domain-Reliance Score measures how much the spoof classifier's decision boundary aligns with the corpus/domain subspace — i.e. whether the classifier *uses* domain information, as distinct from whether domain information is merely *present* (probe accuracy). See [`analysis/drs/README.md`](analysis/drs/README.md).
+Full table and evidence notes are in `RESULTS.md`.
 
-## Fine-tuning phase (e007 — requires ≥24 GB GPU)
+| Run | Change | ITW | ReplayDF | AI4T | Evidence |
+|---|---|---:|---:|---:|---|
+| e003 | frozen linear baseline | 0.111 | 0.317 | 0.470 | number only; artifact absent - UNVERIFIABLE |
+| e005-A | frozen multi-corpus | 0.143 | 0.298 | 0.231 [CI 0.188-0.285] | tracked log |
+| e006 | + XC SupCon, frozen | 0.135 | 0.328 | 0.260 | log absent - UNVERIFIABLE |
+| e007-A | band FT, CE | 0.1805 | 0.3327 | 0.2565 | experiments/e007 JSON |
+| e007-B | + projected SupCon | 0.1167 | 0.3276 | 0.2629 | experiments/e007 JSON |
+| e007-C | XLS-R, transplanted band | 0.2009 | 0.4530 | 0.3435 | experiments/e007 JSON |
 
-Three controlled arms, each changing one variable:
-
-- **e007-A** — backbone adaptation (unfreeze top-K layers), cross-entropy only
-- **e007-B** — A + cross-corpus class-conditional contrastive loss (**target model**)
-- **e007-C** — B with a larger / multilingual backbone (XLS-R)
-
-Design and rationale: [`docs/e007_finetuning_design.md`](docs/e007_finetuning_design.md).
-
-## Results at a glance
-
-Full table in [`RESULTS.md`](RESULTS.md). Headline:
-
-| Model | Configuration | ITW ↓ | ReplayDF ↓ | AI4T ↓ | Probe |
-|-------|---------------|:-----:|:----------:|:------:|:-----:|
-| e003 | Frozen linear baseline | 0.111 | 0.317 | 0.470 | — |
-| e005-A | Frozen multi-corpus (balanced) | 0.143 | 0.298 | **0.231** | 0.967 |
-| e006 | + cross-corpus contrastive | 0.135 | ~0.298 | ~0.231 | 0.972 |
-
-*EER (lower is better). e005-A's AI4T result carries a clustered 95% CI of [0.188, 0.285].*
+EER is lower better. e007 JSONs include bootstrap CI metadata and full-corpus
+guardrails.

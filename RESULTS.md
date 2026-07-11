@@ -1,30 +1,47 @@
 # Results
 
-All numbers are Equal Error Rate (EER, lower is better) on strictly held-out OOD corpora, plus the linear corpus-identity probe accuracy. Models were trained on a frozen WavLM-Large backbone with a balanced multi-corpus sampler (except e003/e002 single-corpus baselines).
+All numbers are Equal Error Rate (EER, lower is better) on strictly held-out
+OOD corpora. Evidence status is tracked because several older rows predate the
+current artifact discipline.
 
-## Frozen-backbone experiment ladder
+## Canonical OOD Table
 
-| Model | Configuration | ITW ↓ | ReplayDF ↓ | AI4T ↓ | Probe | Verdict |
-|-------|---------------|:-----:|:----------:|:------:|:-----:|---------|
-| e003 | Frozen linear baseline | **0.111** | 0.317 | 0.470 | — | OOD floor |
-| e002-A | Frozen + augmentation | 0.127 | 0.296 | 0.417 | 0.962 | Marginal; structure unchanged |
-| e002-B | Augmentation + consistency loss | 0.149 | 0.367 | 0.484 | 0.960 | Regressed |
-| e004 | Shallow fine-tuning (top-4) | 0.192 | 0.273 | 0.461 | 0.964 | Single-corpus FT entrenches shortcut |
-| e005-A | Frozen multi-corpus (balanced) | 0.143 | 0.298 | **0.231** | 0.967 | AI4T breakthrough; CI-verified |
-| e005-C | + spoof positive weight | 0.122 | 0.325 | 0.297 | 0.973 | ITW↑ / AI4T↓ trade-off |
-| e006 | + cross-corpus contrastive | 0.135 | ~0.298 | ~0.231 | 0.972 | Contrastive dormant under freezing |
+| Run | Change | ITW | ReplayDF | AI4T | Evidence |
+|---|---|---:|---:|---:|---|
+| e003 | frozen linear baseline | 0.111 | 0.317 | 0.470 | number only; artifact absent - UNVERIFIABLE |
+| e002-A | + aug, frozen | 0.127 | 0.296 | 0.417 | tracked log |
+| e002-B | + consistency | 0.149 | 0.367 | 0.484 | summary only - UNVERIFIABLE |
+| e004 | single-corpus shallow FT | 0.192 | 0.273 | 0.461 | tracked log |
+| e005-A | frozen multi-corpus | 0.143 | 0.298 | 0.231 [CI 0.188-0.285] | tracked log |
+| e005-C | + spoof pos-weight | 0.122 | 0.325 | 0.297 | tracked log |
+| e006 | + XC SupCon, frozen | 0.135 | 0.328 | 0.260 | log absent - UNVERIFIABLE |
+| e007-A | band FT, CE | 0.1805 | 0.3327 | 0.2565 | experiments/e007 JSON |
+| e007-B | + projected SupCon | 0.1167 | 0.3276 | 0.2629 | experiments/e007 JSON |
+| e007-C | XLS-R, transplanted band | 0.2009 | 0.4530 | 0.3435 | experiments/e007 JSON |
 
-**Notes**
-- e005-A's AI4T EER of **0.231** was validated by a clustered bootstrap (resampling whole source videos), 95% CI **[0.188, 0.285]** — the most robustly verified result.
-- e006's contrastive loss stayed flat (~2.75) across all 16 epochs: on a frozen backbone the objective cannot reshape the geometry. It is expected to activate only under fine-tuning (e007).
+Single seed per condition; seeds are not yet plumbed. Comparisons are
+provisional pending Roadmap Step 6, 5-seed replication.
 
-## Central finding: decodability ≠ generalization
+## e007 Reading
 
-The corpus probe never leaves the **0.96–0.97** band and never decreases, across all six interventions — yet OOD EER varies enormously (AI4T 0.470 → 0.231; ITW 0.111 → 0.192). Corpus separability and cross-corpus generalization are **decoupled**: invariance is neither achieved by any method nor necessary for the gains observed.
+e007-A improved in-domain dev EER but regressed on ITW relative to the frozen
+multi-corpus baselines. e007-B improved ITW substantially over e007-A and is the
+strongest fine-tuned arm on ITW, but ReplayDF and AI4T do not show a universal
+win. e007-C shows that a larger multilingual XLS-R backbone does not
+automatically improve OOD generalization under the transplanted WavLM layer band.
 
-## Domain-Reliance Score (frozen models)
+## Central Finding: Decodability Is Not Generalization
 
-The Domain-Reliance Score (DRS) measures how much of the spoof classifier's weight vector lies in the corpus/domain subspace — i.e. whether the classifier *relies* on domain directions, distinct from whether they are merely *decodable*.
+The corpus probe remains high across interventions, while OOD EER changes
+substantially. Corpus separability and cross-corpus generalization are therefore
+decoupled: domain information can remain highly decodable without being the
+dominant factor controlling OOD performance.
+
+## Domain-Reliance Score (Frozen Models)
+
+The Domain-Reliance Score (DRS) measures how much of the spoof classifier's
+weight vector lies in the corpus/domain subspace, i.e. whether the classifier
+relies on domain directions, distinct from whether they are merely decodable.
 
 | Model | DRS (probe-subspace) | Probe acc |
 |-------|:--------------------:|:---------:|
@@ -35,11 +52,11 @@ The Domain-Reliance Score (DRS) measures how much of the spoof classifier's weig
 | e005-C | 0.0012 | 0.973 |
 | e006 | 0.0026 | 0.972 |
 
-**Reading:** DRS is **low and flat** (0.1–1.4% of classifier weight energy in the domain subspace) across all frozen models, while probe accuracy stays high. This *explains* the decoupling — the classifier barely uses the decodable corpus directions — and indicates that a reliance-control objective has little to act on in the frozen regime. The reliance method is therefore positioned for the **fine-tuning phase (e007)**, where the backbone can move and reliance may emerge. With n=6 these values are interpreted as suggestive, not statistically conclusive. See [`analysis/drs/`](analysis/drs/).
+With n=6 these values are interpreted as suggestive, not statistically
+conclusive. See `analysis/drs/`.
 
-## How to read each experiment's record
+## How To Read Each Experiment Record
 
-Each `experiments/<name>/` folder contains:
-- `run_config.json` — the exact resolved configuration used
-- `crosstest.log` — per-corpus OOD EER, the Kwok bona-fide matrix, and the probe accuracy
-- `train_summary.log` — per-epoch dev EER trajectory and early-stop point
+Each `experiments/<name>/` folder contains the committed lightweight record when
+available. Checkpoints remain outside git. For e007, `experiments/e007/` contains
+the raw OOD JSONs; `CHECKPOINTS.md` records checkpoint hashes for provenance.
