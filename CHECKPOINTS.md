@@ -1,0 +1,4 @@
+# e007 checkpoint hashes (2026-07-11)
+dedef2681511be52ce06e4b2bd3fd248cfd47e0ff3dc5523b23f2fc02044da09 *runs/e007_A_fresh/best.pt
+549451c4e600ab9f753de4c33bc1b33e7ad43421adcee055d87d7fac4a6ce50c *runs/e007_B_fresh/best.pt
+c91f2bfc600a0231f786384c25239f079c748768a439ade313e94812632c0fa2 *runs/e007_C_xlsr_fresh/best.pt
