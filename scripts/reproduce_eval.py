@@ -27,7 +27,8 @@ def load_expected_hashes():
     for line in txt.splitlines():
         parts = line.split()
         if len(parts) >= 2 and len(parts[0]) == 64:
-            out[parts[1]] = parts[0]        # sha -> path (or path -> sha depending on format)
+            path = parts[1].lstrip("*")     # sha256sum binary-mode marker
+            out[path] = parts[0]            # path -> sha
     return out
 
 def main():
@@ -50,15 +51,13 @@ def main():
                "--checkpoint", str(ckpt)]
         if args.data_root: cmd += ["--data-root", args.data_root]
         out_json = Path(f"repro_{run}.json")
-        cmd += ["--out", str(out_json)] if False else []      # adjust to cross_test's real flag
+        cmd += ["--out", str(out_json)]
         r = subprocess.run(cmd, capture_output=True, text=True)
         print(r.stdout[-1500:] if r.stdout else "(no stdout)")
         if r.returncode != 0:
             failures.append(f"{run}: cross_test exit {r.returncode}\n{r.stderr[-500:]}"); continue
         # parse produced json (path per cross_test's writer)
-        prod = None
-        for cand in [out_json, Path(f"runs/{run}_crosstest.json")]:
-            if cand.exists(): prod = json.loads(cand.read_text()); break
+        prod = json.loads(out_json.read_text()) if out_json.exists() else None
         if prod is None:
             failures.append(f"{run}: no output json produced"); continue
         per = prod.get("per_corpus", {})
