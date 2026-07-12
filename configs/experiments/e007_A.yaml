@@ -1,7 +1,7 @@
 # e007-A — Backbone adaptation (CE only). Isolates the effect of unfreezing.
 experiment:
   train_corpora: ["asvspoof5", "diffssd", "fakeorreal", "vctk"]
-  manifest_dir: "manifests"
+  manifest_dir: "manifests/v2"
   data_root: ".."          # SET on server to the dataset root
   sample_rate: 16000
   duration_seconds: 4.0

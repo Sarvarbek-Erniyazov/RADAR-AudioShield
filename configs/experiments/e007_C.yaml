@@ -1,7 +1,7 @@
 # e007-C — Larger / multilingual backbone (XLS-R) + contrastive. As B with backbone swap.
 experiment:
   train_corpora: ["asvspoof5", "diffssd", "fakeorreal", "vctk"]
-  manifest_dir: "manifests"
+  manifest_dir: "manifests/v2"
   data_root: ".."
   sample_rate: 16000
   duration_seconds: 4.0
