@@ -1,0 +1,51 @@
+"""Strict, revision-pinned backbone loading.
+Audit ref: §5 ("WavLM load warnings unexamined", unpinned revisions).
+Integration: the existing backbone module must route from_pretrained through
+load_backbone(); tests/test_hf_loading.py enforces the pure-logic parts offline.
+"""
+from __future__ import annotations
+from pathlib import Path
+import yaml
+
+# Keys that are EXPECTED to be unexpected when loading a pretraining checkpoint
+# into Wav2Vec2Model/WavLMModel (pretraining heads absent from the encoder class).
+KNOWN_PRETRAIN_HEAD_KEYS = {
+    "quantizer.codevectors", "quantizer.weight_proj.weight", "quantizer.weight_proj.bias",
+    "project_q.weight", "project_q.bias", "project_hid.weight", "project_hid.bias",
+}
+
+class BackboneLoadError(RuntimeError):
+    pass
+
+def validate_load_report(unexpected_keys, missing_keys) -> None:
+    """Pure function: raise unless deviations are exactly the known-benign set."""
+    unknown = set(unexpected_keys) - KNOWN_PRETRAIN_HEAD_KEYS
+    if unknown:
+        raise BackboneLoadError(f"Unexpected keys outside known pretrain-head set: {sorted(unknown)}")
+    if missing_keys:
+        raise BackboneLoadError(f"Missing keys (checkpoint/architecture mismatch): {sorted(missing_keys)[:10]}")
+
+def get_pinned_revision(model_name: str, revisions_path: str = "configs/backbone_revisions.yaml") -> str:
+    p = Path(revisions_path)
+    if not p.exists():
+        raise BackboneLoadError(
+            f"{revisions_path} missing — run scripts/pin_backbone_revisions.py once (online) and commit it. "
+            "Floating (unpinned) backbone revisions are forbidden (audit §5)."
+        )
+    revs = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    if model_name not in revs:
+        raise BackboneLoadError(f"No pinned revision for {model_name} in {revisions_path}.")
+    return revs[model_name]
+
+def load_backbone(model_name: str, torch_dtype=None, revisions_path: str = "configs/backbone_revisions.yaml"):
+    """Load with pinned revision + safetensors + strict load-report validation."""
+    from transformers import AutoModel
+    revision = get_pinned_revision(model_name, revisions_path)
+    model, loading_info = AutoModel.from_pretrained(
+        model_name, revision=revision, use_safetensors=True,
+        torch_dtype=torch_dtype, output_loading_info=True,
+    )
+    validate_load_report(loading_info.get("unexpected_keys", []),
+                         loading_info.get("missing_keys", []))
+    model.config._audioshield_pinned_revision = revision
+    return model
