@@ -300,19 +300,24 @@ def main():
     if Xs:
         X = np.concatenate(Xs, 0); y = np.array(ys)
         if len(set(y)) >= 2:
-            from sklearn.linear_model import LogisticRegression
-            from sklearn.preprocessing import StandardScaler
-            from sklearn.model_selection import cross_val_score
-            Xn = StandardScaler().fit_transform(X)
-            clf = LogisticRegression(max_iter=2000)
-            probe_acc = float(cross_val_score(clf, Xn, y, cv=3).mean())
-            chance = 1.0 / len(set(y))
-            print(f"probe acc = {probe_acc:.4f}  (chance = {chance:.4f}, {len(set(y))} domains)")
-            print(f"  -> {'NEAR CHANCE: invariant (BMI worked)' if probe_acc < chance*1.5 else 'ABOVE CHANCE: residual corpus signal'}")
+            from audioshield.evaluation.grouped_probe import grouped_probe
+            # NOTE: cache carries no source_id/speaker_id, so we cannot group by recording
+            # here yet (audit §4.7). Until source_id is threaded into the cache tuple, we
+            # report the HONEST-BASELINE version: balanced accuracy + macro-F1 vs the true
+            # majority baseline (not 1/n_domains), ungrouped. This is a strict improvement
+            # over raw-accuracy-vs-uniform-chance and does NOT overstate invariance.
+            # Grouping upgrade tracked in docs/probe_wiring_todo.md.
+            probe_res = grouped_probe(Xn := StandardScaler().fit_transform(X), y,
+                                      meta=None, n_splits=3, seed=13)
+            probe_acc = probe_res["balanced_accuracy"]
+            base = probe_res["majority_baseline"]
+            print(f"probe balanced_acc = {probe_acc:.4f}  (honest majority baseline = {base:.4f}, "
+                  f"{probe_res.get('n_groups','?')} groups, {len(set(y))} domains)")
+            print(f"  -> {'NEAR BASELINE: low residual corpus signal' if probe_acc < base + 0.10 else 'ABOVE BASELINE: residual corpus signal decodable'}")
 
     result = {"checkpoint": args.checkpoint, "epoch": ckpt.get("epoch"),
               "threshold": thr, "per_corpus": table, "kwok": kwok,
-              "bona_probe_acc": probe_acc,
+              "bona_probe_acc": probe_acc, "bona_probe_detail": (probe_res if "probe_res" in dir() else None),
               "reported_full_corpora": not bool(args.max_items),
               "max_items": int(args.max_items),
               "bootstrap_reps": int(args.bootstrap_reps)}
