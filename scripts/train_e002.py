@@ -285,13 +285,16 @@ def main():
                                      use_amp=use_amp,
                                      max_steps=cfg["train"].get("max_steps_per_epoch", 0))
         per = validate_e002(model, dev_loaders, device, use_amp)
-        probe_acc = None
+        probe_res = None
         if cfg["train"].get("probe_every_epoch", False):
-            probe_acc = probe_corpus_during_train(model, dev_loaders, device, use_amp)
+            probe_res = probe_corpus_during_train(model, dev_loaders, device, use_amp)
         deg = {k: v for k, v in per.items() if k.endswith("_deg")}
         mean_eer = mean_cross_corpus_eer(deg or per)
         improved, stop = stopper.update(mean_eer, epoch)
-        probe_str = f"probe={probe_acc:.4f} " if probe_acc is not None else ""
+        probe_str = ""
+        if probe_res is not None:
+            probe_str = (f"probe_bacc={probe_res['balanced_accuracy']:.4f} "
+                         f"probe_base={probe_res['majority_baseline']:.4f} ")
         skip_str = (
             f"skip_loss={terms.get('skipped_nonfinite_loss', 0)} "
             f"skip_grad={terms.get('skipped_nonfinite_grad', 0)} "

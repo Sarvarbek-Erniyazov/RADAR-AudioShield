@@ -169,11 +169,17 @@ def probe_corpus_during_train(model, loaders_by_corpus, device, use_amp, max_per
         return None
     try:
         from sklearn.preprocessing import StandardScaler
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.model_selection import cross_val_score
+        from audioshield.evaluation.grouped_probe import grouped_probe
+        # Honest-baseline probe (audit §4.7): balanced accuracy + TRUE majority baseline,
+        # replacing raw-accuracy-vs-uniform-chance. Grouping (source_id) is NOT available
+        # in the probe loaders' batch dict {waveform, corpus_id}; recording-level grouping
+        # is deferred to Step 2b (see docs/probe_wiring_todo.md). Ungrouped decodability is
+        # an UPPER bound, so "probe pinned high" remains conservative.
         Xn = StandardScaler().fit_transform(X)
-        clf = LogisticRegression(max_iter=2000)
-        return float(cross_val_score(clf, Xn, y, cv=3).mean())
+        res = grouped_probe(Xn, y, meta=None, n_splits=3, seed=13)
+        return {"balanced_accuracy": res["balanced_accuracy"],
+                "majority_baseline": res["majority_baseline"],
+                "macro_f1": res.get("macro_f1")}
     except Exception as e:
         print(f"[probe][warn] {e}")
         return None
