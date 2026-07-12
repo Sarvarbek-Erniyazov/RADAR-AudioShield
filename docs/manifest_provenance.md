@@ -18,3 +18,10 @@ channel: replaydf | speaker/source: vctk(100%), replaydf, ai4t(source), diffssd(
   skew AND MI(corpus;class) > 0 (corpus predicted class). Fixed in Commit 4 (joint weighting + MI guard).
 - BMIQuotaSampler in samplers.py was NEVER used by the training scripts — its per-batch bona-domain
   guarantees did not run in any e002–e007 experiment. (Second inactive-module instance; cf. audit §1.)
+
+## Sampler provenance (audit §4.4, Commit 4)
+- e002–e007 used WeightedRandomSampler with weights (1/n_corpora)(1/n_classes_in_corpus)(1/count).
+  The 1/n_classes_in_corpus term gave bona-only VCTK double per-cell mass -> measured 62.5/37.5 class
+  skew AND MI(corpus;class) > 0 (corpus predicted class). Fixed Commit 4 (joint weighting + MI guard).
+- BMIQuotaSampler in samplers.py was NEVER used by the training scripts -- its per-batch bona-domain
+  guarantees did not run in any e002-e007 experiment (second inactive-module instance; cf. audit §1).
