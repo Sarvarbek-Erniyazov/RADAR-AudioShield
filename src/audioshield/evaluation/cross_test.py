@@ -194,6 +194,8 @@ def main():
     ap.add_argument("--bootstrap-reps", type=int, default=1000)
     ap.add_argument("--bootstrap-seed", type=int, default=13)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--force", action="store_true",
+                    help="overwrite --out (or the derived default path) if it already exists")
     args = ap.parse_args()
     if args.max_items:
         print(
@@ -321,9 +323,19 @@ def main():
               "reported_full_corpora": not bool(args.max_items),
               "max_items": int(args.max_items),
               "bootstrap_reps": int(args.bootstrap_reps)}
-    out = args.out or f"experiments/e001_unified_v1/crosstest_{Path(args.checkpoint).stem}.json"
-    Path(out).parent.mkdir(parents=True, exist_ok=True)
-    Path(out).write_text(json.dumps(result, indent=2))
+    # Default output lives beside the checkpoint and is namespaced by the checkpoint's
+    # own parent dir name, not just its (often shared, e.g. "best") stem -- prevents
+    # e007_A/B/C all colliding on one shared default path (report finding 3.5, High).
+    ckpt_path = Path(args.checkpoint)
+    default_name = f"crosstest_{ckpt_path.parent.name}_{ckpt_path.stem}.json"
+    out = Path(args.out) if args.out else ckpt_path.parent / default_name
+    if out.exists() and not args.force:
+        raise SystemExit(
+            f"[cross_test] refusing to overwrite existing {out} -- pass --force to overwrite, "
+            "or choose a different --out (prevents silent last-writer-wins collisions)."
+        )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2))
     print(f"\nwrote {out}")
 
 

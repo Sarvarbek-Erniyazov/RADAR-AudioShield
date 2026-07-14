@@ -70,7 +70,10 @@ def main():
                "--checkpoint", str(ckpt)]
         if args.data_root: cmd += ["--data-root", args.data_root]
         out_json = Path(f"repro_{run}.json")
-        cmd += ["--out", str(out_json)]
+        # --force: this script intentionally overwrites its own scratch output on every
+        # re-run of the gate (report finding 3.5 -- cross_test.py now refuses to overwrite
+        # by default; this is the one caller that legitimately wants repeat-overwrite).
+        cmd += ["--out", str(out_json), "--force"]
         r = subprocess.run(cmd, capture_output=True, text=True)
         print(r.stdout[-1500:] if r.stdout else "(no stdout)")
         if r.returncode != 0:
