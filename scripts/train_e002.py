@@ -15,10 +15,12 @@ import random
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
+from audioshield.data.balanced_weighting import compute_joint_weights, empirical_class_corpus_mi
 from audioshield.data.manifest import read_manifest
 from audioshield.data.unified_dataset import UnifiedAudioDataset, collate_unified
 from audioshield.models.detector import AudioShieldX
@@ -91,21 +93,28 @@ def _configure_backbone_finetuning(model, cfg: dict) -> bool:
     return True
 
 
-def make_balanced_sampler(train_rows, num_samples):
-    """Per-sample weight = 1/(corpus size) * 1/(class size within corpus).
-    Equalizes corpus contribution AND pulls classes toward 50/50."""
-    from collections import Counter, defaultdict
-    n_corpora = len(set(r.corpus for r in train_rows))
-    cls_n = Counter((r.corpus, r.target) for r in train_rows)
-    classes_in_corpus = defaultdict(set)
-    for r in train_rows:
-        classes_in_corpus[r.corpus].add(r.target)
-    weights = [
-        (1.0 / n_corpora)
-        * (1.0 / len(classes_in_corpus[r.corpus]))
-        * (1.0 / cls_n[(r.corpus, r.target)])
-        for r in train_rows
-    ]
+def make_balanced_sampler(train_rows, num_samples, cfg, seed):
+    """Joint class x corpus sampling weights (audit §4.4/§3.3), with a startup
+    MI(corpus;class) guard over a seeded simulated epoch -- hard-fails rather than
+    silently training on a still-confounded sampler."""
+    train_cfg = cfg["train"]
+    weights = compute_joint_weights(
+        train_rows,
+        bona_only_corpus_policy=train_cfg.get("bona_only_corpus_policy", "exclude_from_class_conditional"),
+        min_corpora_per_class=int(train_cfg.get("min_corpora_per_class", 2)),
+    )
+    max_mi = float(train_cfg.get("max_corpus_class_mi", 0.05))
+    rng = np.random.default_rng(seed)
+    sim_idx = rng.choice(len(train_rows), size=min(len(train_rows), 40000), replace=True, p=weights)
+    sim_t = np.array([int(train_rows[i].target) for i in sim_idx])
+    sim_c = np.array([train_rows[i].corpus for i in sim_idx])
+    mi = empirical_class_corpus_mi(sim_t, sim_c)
+    if mi > max_mi:
+        raise RuntimeError(
+            f"[e002] startup guard: MI(corpus;class)={mi:.4f} bits > max_corpus_class_mi={max_mi} "
+            "-- sampler still confounds corpus with class (audit §4.4/§3.3)."
+        )
+    print(f"[e002] balanced sampler MI(corpus;class) guard: {mi:.4f} bits <= {max_mi} -- OK")
     import torch as _t
     return WeightedRandomSampler(_t.DoubleTensor(weights),
                                  num_samples=num_samples, replacement=True)
@@ -166,7 +175,7 @@ def main():
     if cfg["train"].get("balanced_sampler", False):
         steps = cfg["train"].get("max_steps_per_epoch", 0) or (len(train_ds)//cfg["train"]["batch_size"])
         n_samp = steps * cfg["train"]["batch_size"]
-        sampler = make_balanced_sampler(train_rows, n_samp)
+        sampler = make_balanced_sampler(train_rows, n_samp, cfg, seed)
         print(f"[e005] balanced sampler: {n_samp} samples/epoch across "
               f"{len(set(r.corpus for r in train_rows))} corpora")
         train_loader = DataLoader(
