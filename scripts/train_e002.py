@@ -20,6 +20,8 @@ import torch
 import yaml
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
+from audioshield.data import channel_aug
+from audioshield.data.aug_assets import resolve_aug_assets
 from audioshield.data.balanced_weighting import compute_joint_weights, empirical_class_corpus_mi
 from audioshield.data.manifest import read_manifest
 from audioshield.data.unified_dataset import UnifiedAudioDataset, collate_unified
@@ -153,6 +155,16 @@ def main():
     seed_info = seed_everything(seed)
     print(f"[e002] seeded: {seed_info}")
 
+    # train_ds/dev "_deg" loaders below always construct with degrade=True, so
+    # augmentation assets are mandatory here -- hard-fails if missing/misconfigured
+    # rather than silently no-op'ing reverb (audit §5).
+    aug_fingerprint = resolve_aug_assets(cfg)
+    if "rir_root" in aug_fingerprint:
+        channel_aug.configure_rir_root(cfg["augmentation"]["rir_root"])
+        print(f"[e002] RIR root configured: {aug_fingerprint['rir_root']['root']} "
+              f"({aug_fingerprint['rir_root']['n_files']} files, "
+              f"sha256={aug_fingerprint['rir_root']['listing_sha256'][:12]}...)")
+
     out = Path(args.output_dir); out.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     describe_device(device)
@@ -267,7 +279,8 @@ def main():
                "consistency": cfg["consistency"],
                "cfg": {k: cfg[k] for k in cfg if k != 'model'},
                "model_cfg": cfg.get("model", {}),
-               "seed_info": seed_info},
+               "seed_info": seed_info,
+               "aug_assets": aug_fingerprint},
               open(out / "run_config.json", "w"), indent=2)
 
     if args.max_train_batches > 0:

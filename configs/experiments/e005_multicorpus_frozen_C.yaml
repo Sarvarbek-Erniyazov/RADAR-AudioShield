@@ -6,6 +6,8 @@ experiment:
   sample_rate: 16000
   duration_seconds: 4.0
   seed: 13
+augmentation:
+  rir_root: "../datasets/rirs/RIRS_NOISES/simulated_rirs"   # SET on server to the RIR corpus path
 consistency:
   lambda_kl: 0.0
   lambda_emb: 0.0
