@@ -37,16 +37,35 @@ def main():
     ap.add_argument("--data-root", default="")
     args = ap.parse_args()
 
+    expected_hashes = load_expected_hashes()
+    if not expected_hashes:
+        print("[reproduce_eval][warn] CHECKPOINTS.md yielded no parsable hash lines", flush=True)
+
     results, failures = {}, []
     for run, expected_eers in EXPECTED.items():
-        # locate checkpoint
+        # locate checkpoint -- try the nested "runs/<run>/best.pt" form (matches
+        # CHECKPOINTS.md's keys) under CKPT_DIR first, then the flattened legacy
+        # candidate, then the local training-machine layout.
         ckpt = None
-        for cand in [CKPT_DIR / f"runs_{run}_best.pt", FALLBACK_CKPT / run / "best.pt"]:
+        for cand in [CKPT_DIR / "runs" / run / "best.pt",
+                    CKPT_DIR / f"runs_{run}_best.pt",
+                    FALLBACK_CKPT / run / "best.pt"]:
             if cand.exists(): ckpt = cand; break
         if ckpt is None:
             failures.append(f"{run}: checkpoint not found"); continue
         print(f"\n=== {run} :: {ckpt} ===", flush=True)
-        print(f"  sha256={sha256(ckpt)[:16]}...", flush=True)
+        got_sha = sha256(ckpt)
+        print(f"  sha256={got_sha[:16]}...", flush=True)
+        expected_key = f"runs/{run}/best.pt"
+        expected_sha = expected_hashes.get(expected_key)
+        if expected_sha is None:
+            failures.append(f"{run}: no expected hash for {expected_key} in CHECKPOINTS.md"); continue
+        if got_sha != expected_sha:
+            failures.append(
+                f"{run}: checkpoint hash mismatch -- expected {expected_sha[:16]}..., "
+                f"got {got_sha[:16]}... ({ckpt}); refusing to trust this checkpoint's EERs")
+            continue
+        print(f"  hash OK (matches CHECKPOINTS.md)", flush=True)
         cmd = [sys.executable, "-m", "audioshield.evaluation.cross_test",
                "--checkpoint", str(ckpt)]
         if args.data_root: cmd += ["--data-root", args.data_root]
