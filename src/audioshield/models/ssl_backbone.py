@@ -13,7 +13,8 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 import torch
 from torch import nn
-from transformers import AutoModel
+
+from ..utils.hf_loading import load_backbone
 
 
 class LayerWeightedSSL(nn.Module):
@@ -27,7 +28,7 @@ class LayerWeightedSSL(nn.Module):
         freeze: bool = True,
     ) -> None:
         super().__init__()
-        self.backbone = AutoModel.from_pretrained(backbone_name, local_files_only=True)
+        self.backbone = load_backbone(backbone_name, local_files_only=True)
         self.hidden_size = int(self.backbone.config.hidden_size)
         # backbone-agnostic: trust the loaded model's actual layer count
         # (num_hidden_layers + 1 for the embedding output) over the config value,

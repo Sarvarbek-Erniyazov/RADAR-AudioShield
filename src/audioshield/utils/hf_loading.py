@@ -37,13 +37,19 @@ def get_pinned_revision(model_name: str, revisions_path: str = "configs/backbone
         raise BackboneLoadError(f"No pinned revision for {model_name} in {revisions_path}.")
     return revs[model_name]
 
-def load_backbone(model_name: str, torch_dtype=None, revisions_path: str = "configs/backbone_revisions.yaml"):
-    """Load with pinned revision + safetensors + strict load-report validation."""
+def load_backbone(model_name: str, torch_dtype=None, revisions_path: str = "configs/backbone_revisions.yaml",
+                  local_files_only: bool = False):
+    """Load with pinned revision + safetensors + strict load-report validation.
+    local_files_only defaults to False (unchanged prior behavior, needed by the
+    @pytest.mark.network real-download test); callers running fully offline
+    (e.g. ssl_backbone.py, which sets HF_HUB_OFFLINE=1) pass local_files_only=True
+    explicitly."""
     from transformers import AutoModel
     revision = get_pinned_revision(model_name, revisions_path)
     model, loading_info = AutoModel.from_pretrained(
         model_name, revision=revision, use_safetensors=True,
         torch_dtype=torch_dtype, output_loading_info=True,
+        local_files_only=local_files_only,
     )
     validate_load_report(loading_info.get("unexpected_keys", []),
                          loading_info.get("missing_keys", []))
