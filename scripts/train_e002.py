@@ -338,6 +338,7 @@ def main():
             xc_str = (
                 f"xc_npos={terms.get('xc_npos', 0.0):.1f} "
                 f"xc_skip={terms.get('xc_skipped', 0.0):.3f} "
+                f"xc_guard_skip={terms.get('xc_guard_skipped_batches', 0)} "
             )
         print(f"epoch={epoch} dt={time.time()-t0:.0f}s "
               f"steps={terms.get('steps','?')} loss={terms.get('loss',float('nan')):.4f} "
