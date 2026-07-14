@@ -31,6 +31,7 @@ from audioshield.training.optim import (
 from audioshield.training.loop_e002 import train_one_epoch_e002, validate_e002, probe_corpus_during_train
 from audioshield.training.early_stopping import MeanCrossCorpusStopper, mean_cross_corpus_eer
 from audioshield.utils.runtime import describe_device
+from audioshield.utils.seeding import seed_everything, dataloader_seed_kwargs
 
 
 def load_cfg(exp_path, model_path):
@@ -138,6 +139,11 @@ def main():
             d = d.setdefault(k, {})
         d[parts[-1]] = pv
         print(f"[override] {key} = {pv!r}")
+
+    seed = int(cfg["experiment"]["seed"])
+    seed_info = seed_everything(seed)
+    print(f"[e002] seeded: {seed_info}")
+
     out = Path(args.output_dir); out.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     describe_device(device)
@@ -166,12 +172,14 @@ def main():
         train_loader = DataLoader(
             train_ds, batch_size=cfg["train"]["batch_size"], sampler=sampler,
             collate_fn=collate_unified, drop_last=True,
-            **_loader_kwargs(cfg["train"].get("num_workers", 4), device))
+            **_loader_kwargs(cfg["train"].get("num_workers", 4), device),
+            **dataloader_seed_kwargs(seed))
     else:
         train_loader = DataLoader(
             train_ds, batch_size=cfg["train"]["batch_size"], shuffle=True,
             collate_fn=collate_unified, drop_last=True,
-            **_loader_kwargs(cfg["train"].get("num_workers", 4), device))
+            **_loader_kwargs(cfg["train"].get("num_workers", 4), device),
+            **dataloader_seed_kwargs(seed))
 
     dev_loaders = {}
     val_workers = int(cfg["train"].get("val_num_workers", min(2, int(cfg["train"].get("num_workers", 4)))))
@@ -192,7 +200,8 @@ def main():
         dev_loaders[c + "_clean"] = DataLoader(
             ds_clean, batch_size=val_batch_size, shuffle=False,
             collate_fn=collate_unified,
-            **_loader_kwargs(val_workers, device))
+            **_loader_kwargs(val_workers, device),
+            **dataloader_seed_kwargs(seed))
         ds_deg = UnifiedAudioDataset(rows, exp["data_root"], sample_rate=exp["sample_rate"],
                                      duration_seconds=exp["duration_seconds"], random_crop=False,
                                      corpus_vocab=corpus_vocab, bona_source_vocab=bona_vocab,
@@ -200,7 +209,8 @@ def main():
         dev_loaders[c + "_deg"] = DataLoader(
             ds_deg, batch_size=val_batch_size, shuffle=False,
             collate_fn=_deg_collate,
-            **_loader_kwargs(val_workers, device))
+            **_loader_kwargs(val_workers, device),
+            **dataloader_seed_kwargs(seed))
 
     model = AudioShieldX(cfg).to(device)
     xc_cfg = cfg.get("xc_contrastive", {})
@@ -247,12 +257,14 @@ def main():
     json.dump({"corpus_vocab": corpus_vocab, "bona_vocab": bona_vocab,
                "consistency": cfg["consistency"],
                "cfg": {k: cfg[k] for k in cfg if k != 'model'},
-               "model_cfg": cfg.get("model", {})},
+               "model_cfg": cfg.get("model", {}),
+               "seed_info": seed_info},
               open(out / "run_config.json", "w"), indent=2)
 
     if args.max_train_batches > 0:
         small = DataLoader(train_ds, batch_size=cfg["train"]["batch_size"], shuffle=True,
-                           num_workers=0, collate_fn=collate_unified, drop_last=True)
+                           num_workers=0, collate_fn=collate_unified, drop_last=True,
+                           **dataloader_seed_kwargs(seed))
         t = train_one_epoch_e002(model, small, optimizer, scaler, device, cfg,
                                  use_amp=use_amp, max_steps=args.max_train_batches)
         print("DRY train terms:", {k: round(v, 4) for k, v in t.items()})
