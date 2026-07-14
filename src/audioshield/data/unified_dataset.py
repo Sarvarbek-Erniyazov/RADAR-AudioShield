@@ -15,8 +15,9 @@ from typing import Optional, Sequence
 import torch
 from torch.utils.data import Dataset
 
-from .audio_io import load_audio, to_mono, resample_linear, crop_or_pad
+from .audio_io import resample_linear, crop_or_pad
 from .manifest import ManifestRow, read_manifest
+from .safe_audio import load_audio_strict, load_allowlist, AudioReadError
 
 
 class UnifiedAudioDataset(Dataset):
@@ -44,6 +45,8 @@ class UnifiedAudioDataset(Dataset):
         self.bona_source_vocab = bona_source_vocab or self._build_vocab(
             [r.bona_fide_source for r in self.rows]
         )
+        self.allowlist = load_allowlist()
+        self.allowlist_skips = 0
 
     @staticmethod
     def _build_vocab(values: list[str]) -> dict[str, int]:
@@ -71,25 +74,26 @@ class UnifiedAudioDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         row = self.rows[index]
-        last_err = None
         for _offset in range(0, 50):
             try_row = self.rows[(index + _offset) % len(self.rows)]
-            try:
-                waveform, orig_sr = load_audio(self._resolve(try_row.path))
-                mono = to_mono(waveform)
-                mono = resample_linear(mono, orig_sr, self.sample_rate)
-                mono = crop_or_pad(mono, self.num_samples, random_crop=self.random_crop)
-                mono = mono.clamp(-1.0, 1.0)
+            result = load_audio_strict(self._resolve(try_row.path), try_row.utt_id, self.allowlist)
+            if result is not None:
+                x, orig_sr = result
                 row = try_row
                 break
-            except Exception as _e:
-                last_err = _e
-                continue
+            # allowlisted-bad file (configs/known_bad.txt): counted, deterministic
+            # substitution to the next row by index. Any OTHER failure raises
+            # AudioReadError out of load_audio_strict and is NOT caught here (audit §5).
+            self.allowlist_skips += 1
         else:
-            raise RuntimeError(
-                f"[unified_dataset] 50 consecutive unreadable files from index {index}; "
-                f"last error: {last_err}"
+            raise AudioReadError(
+                f"[unified_dataset] 50 consecutive allowlisted-bad files from index {index}; "
+                "check configs/known_bad.txt for an over-broad entry."
             )
+        waveform = torch.from_numpy(x)
+        mono = resample_linear(waveform, orig_sr, self.sample_rate)
+        mono = crop_or_pad(mono, self.num_samples, random_crop=self.random_crop)
+        mono = mono.clamp(-1.0, 1.0)
 
         item = {
             "waveform": mono,
