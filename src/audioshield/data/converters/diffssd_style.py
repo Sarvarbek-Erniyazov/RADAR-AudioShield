@@ -74,15 +74,21 @@ def convert(
         raise ValueError(f"{csv_path}: source CSV missing columns {missing}")
 
     rows: list[ManifestRow] = []
+    n_dropped_short_row = 0
+    n_dropped_empty_filename = 0
+    n_dropped_malformed_target = 0
     for cells in raw_rows[header_idx + 1 :]:
         if not cells or len(cells) < len(header):
+            n_dropped_short_row += 1
             continue
         filename = cells[col["filename"]].strip()
         if not filename:
+            n_dropped_empty_filename += 1
             continue
         try:
             target = int(cells[col["target"]].strip())
         except ValueError:
+            n_dropped_malformed_target += 1
             continue
         method = cells[col["method_name"]].strip().lower().replace("_", "")
         split = split_override or cells[col["set"]].strip().lower()
@@ -102,4 +108,10 @@ def convert(
                 bona_fide_source=bona_fide_source,
             )
         )
+    n_dropped = n_dropped_short_row + n_dropped_empty_filename + n_dropped_malformed_target
+    if n_dropped:
+        print(f"[diffssd_style] {csv_path}: dropped {n_dropped} malformed rows "
+              f"(short_row={n_dropped_short_row}, empty_filename={n_dropped_empty_filename}, "
+              f"malformed_target={n_dropped_malformed_target}) out of "
+              f"{len(raw_rows) - header_idx - 1} data rows -- counted, not silent (report finding 3.1)")
     return rows
