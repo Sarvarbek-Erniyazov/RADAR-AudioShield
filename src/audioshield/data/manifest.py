@@ -15,11 +15,17 @@ One CSV per corpus, identical columns, so all loaders are corpus-agnostic:
                       dataset repo, e.g. mlaad. "NA" for every other corpus. Lets a
                       targeted re-fetch (hf_hub_download(repo_id=..., filename=hf_path))
                       pull back a single file without a full re-download.
+
+A manifest may be gzip-compressed on disk (e.g. manifests/v2/mlaad.csv.gz, ~120MB
+plain -> a few MB compressed) -- read_manifest transparently decompresses based on
+the .gz suffix; write_manifest always writes plain text (the gzip step, when used,
+is the caller's responsibility -- see scripts/build_mlaad_manifest.py).
 """
 
 from __future__ import annotations
 
 import csv
+import gzip
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable, Optional
@@ -77,13 +83,16 @@ def read_manifest(
     splits: Optional[Iterable[str]] = None,
     corpora: Optional[Iterable[str]] = None,
 ) -> list[ManifestRow]:
-    """Read a unified manifest, optionally filtering by split and/or corpus."""
+    """Read a unified manifest, optionally filtering by split and/or corpus.
+    Transparently handles a gzip-compressed manifest (path ending in .gz) --
+    e.g. manifests/v2/mlaad.csv.gz -- as well as a plain .csv."""
     path = Path(path)
     split_set = set(splits) if splits is not None else None
     corpus_set = set(corpora) if corpora is not None else None
 
     rows: list[ManifestRow] = []
-    with path.open("r", newline="", encoding="utf-8") as handle:
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt", newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         CORE = {'utt_id','path','target','corpus','split','attack','bona_fide_source'}
         missing = CORE - set(reader.fieldnames or [])

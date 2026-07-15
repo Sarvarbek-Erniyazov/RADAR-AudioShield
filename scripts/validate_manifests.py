@@ -8,7 +8,10 @@ REQ = ["utt_id","path","target","corpus","split","attack","bona_fide_source",
 
 def main(d="manifests/v2"):
     bad = 0
-    for csv in sorted(Path(d).glob("*.csv")):
+    # a manifest may be gzip-compressed (e.g. mlaad.csv.gz) -- pandas infers
+    # decompression from the .gz suffix on its own, so only the glob needs updating.
+    files = sorted({*Path(d).glob("*.csv"), *Path(d).glob("*.csv.gz")}, key=lambda p: p.name)
+    for csv in files:
         df = pd.read_csv(csv, dtype=str, keep_default_na=False)
         errs = []
         missing = [c for c in REQ if c not in df.columns]
