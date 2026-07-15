@@ -89,6 +89,9 @@ def main():
             print(f"[skip] {csv.name}: columns {sorted(set(df.columns))} lack {sorted(need - set(df.columns))}")
             continue
         meta = df.apply(derive, axis=1, result_type="expand")
+        overlap = [c for c in meta.columns if c in df.columns]
+        if overlap:  # idempotent: re-running on an already-extended CSV replaces, doesn't duplicate
+            df = df.drop(columns=overlap)
         v2 = pd.concat([df, meta], axis=1)
         assert not v2[meta.columns].isna().any().any(), f"{csv.name}: empty factor cell produced"
         v2.to_csv(out / csv.name, index=False, lineterminator="\n")

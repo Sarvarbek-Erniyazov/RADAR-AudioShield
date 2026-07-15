@@ -10,6 +10,11 @@ One CSV per corpus, identical columns, so all loaders are corpus-agnostic:
 - attack            : generator/attack tag (DIAGNOSTICS ONLY -- never a train label)
 - bona_fide_source  : genuine-domain tag, used by BMI / Kwok cross-testing.
                       For spoof rows this is "na".
+- hf_path           : upstream HuggingFace-repo-relative path for corpora whose raw
+                      audio is fetched (and later deleted post-embedding) from an HF
+                      dataset repo, e.g. mlaad. "NA" for every other corpus. Lets a
+                      targeted re-fetch (hf_hub_download(repo_id=..., filename=hf_path))
+                      pull back a single file without a full re-download.
 """
 
 from __future__ import annotations
@@ -19,7 +24,9 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable, Optional
 
-FIELDNAMES = ["utt_id", "path", "target", "corpus", "split", "attack", "bona_fide_source"]
+FIELDNAMES = ["utt_id", "path", "target", "corpus", "split", "attack", "bona_fide_source",
+              "source_id", "speaker_id", "generator_id", "channel_id", "language",
+              "platform_id", "hf_path"]
 VALID_SPLITS = {"train", "val", "test"}
 
 
@@ -38,6 +45,7 @@ class ManifestRow:
     channel_id: str = "NA"
     language: str = "NA"
     platform_id: str = "NA"
+    hf_path: str = "NA"
 
     def validate(self) -> None:
         if self.target not in (0, 1):
@@ -101,6 +109,7 @@ def read_manifest(
                     channel_id=record.get("channel_id", "NA"),
                     language=record.get("language", "NA"),
                     platform_id=record.get("platform_id", "NA"),
+                    hf_path=record.get("hf_path", "NA"),
                 )
             )
     return rows
