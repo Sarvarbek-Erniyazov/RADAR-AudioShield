@@ -160,12 +160,16 @@ def test_leace_handles_continuous_concept():
     concept = rng.normal(size=n)
     direction = rng.normal(size=dim); direction /= np.linalg.norm(direction)
     X = np.outer(concept, direction) * 2.0 + rng.normal(size=(n, dim))
-    eraser = fit_leace(X, concept)
-    X_erased = eraser.transform(X)
-    # linear predictability of the continuous concept should collapse
+    Xtr, Xte, concept_tr, concept_te = train_test_split(X, concept, test_size=0.3, random_state=0)
+
+    eraser = fit_leace(Xtr, concept_tr)
+    Xtr_e, Xte_e = eraser.transform(Xtr), eraser.transform(Xte)
+
+    # linear predictability of the continuous concept should collapse -- fit on
+    # train, scored on the HELD-OUT split (not the eraser's own fit data).
     from sklearn.linear_model import LinearRegression
-    r2_before = LinearRegression().fit(X, concept).score(X, concept)
-    r2_after = LinearRegression().fit(X_erased, concept).score(X_erased, concept)
+    r2_before = LinearRegression().fit(Xtr, concept_tr).score(Xte, concept_te)
+    r2_after = LinearRegression().fit(Xtr_e, concept_tr).score(Xte_e, concept_te)
     assert r2_before > 0.5
     assert r2_after < 0.05
 
