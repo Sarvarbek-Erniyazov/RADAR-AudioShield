@@ -1,8 +1,40 @@
 # Results
 
-All numbers are Equal Error Rate (EER, lower is better) on strictly held-out
-OOD corpora. Evidence status is tracked because several older rows predate the
-current artifact discipline.
+All numbers are Equal Error Rate (EER, lower is better) on the project's OOD
+development corpora (In-the-Wild, ReplayDF, AI4T; see Disclosure below).
+Evidence status is tracked because several older rows predate the current
+artifact discipline.
+
+## Disclosure and status of these results
+
+The results in this file were produced before the project's external audit
+and carry three qualifications that supersede any earlier framing.
+
+First, the spoof_pos_weight decision chain: e007-A's `spoof_pos_weight: 1.0`
+was selected on the basis of e005-C's AI4T/ITW results. e005-C was
+subsequently found to have been run against the v1 manifest directory while
+its sibling configs used manifests/v2 (fixed in the 2a repair branch), so
+the evidential basis for that hyperparameter choice is weaker than the
+original write-up implied. The setting is retained as-is pending the Step 5
+baseline suite; it should be read as a historical choice, not a validated
+one.
+
+Second, evaluation-tier status: In-the-Wild, ReplayDF, and AI4T were used
+iteratively during development of the experiments reported here, including
+for decisions like the one above. They are therefore DEVELOPMENT corpora
+for this project, not honest test sets, and no number in this file against
+them constitutes an unbiased generalization estimate. Final-tier evaluation
+(XMAD-Bench, ML-ITW, temporal holdout) is governed by a separate blindness
+protocol and has not yet occurred.
+
+Third, all numbers below predate the 2a correctness repairs (seeding,
+sampler factorization, strict loading, EER computation, dependency
+pinning). They are retained pending the hash-verified reproduction run;
+if that run diverges, the divergence investigation supersedes this file's
+numbers.
+
+Review records governing this project's claims are committed under
+docs/ (research audit, honest-verdict review, code-issue chain).
 
 ## Canonical OOD Table
 
@@ -24,18 +56,24 @@ provisional pending Roadmap Step 6, 5-seed replication.
 
 ## e007 Reading
 
-e007-A improved in-domain dev EER but regressed on ITW relative to the frozen
-multi-corpus baselines. e007-B improved ITW substantially over e007-A and is the
-strongest fine-tuned arm on ITW, but ReplayDF and AI4T do not show a universal
-win. e007-C shows that a larger multilingual XLS-R backbone does not
-automatically improve OOD generalization under the transplanted WavLM layer band.
+e007-A's in-domain dev-corpus EER differs from the frozen multi-corpus
+baselines' (not shown in this table); e007-A's ITW EER (0.1805) is higher than
+the frozen multi-corpus baselines' ITW EER (e005-A 0.143, e005-C 0.122, e006
+0.135). e007-B's ITW EER (0.1167) is lower than e007-A's (0.1805) and is the
+lowest ITW EER among the three fine-tuned arms (e007-A 0.1805, e007-B 0.1167,
+e007-C 0.2009); e007-B's ReplayDF EER (0.3276) is lower than e007-A's (0.3327),
+and e007-B's AI4T EER (0.2629) is higher than e007-A's (0.2565). e007-C uses a
+larger, multilingual XLS-R backbone under the transplanted WavLM layer band;
+its ITW/ReplayDF/AI4T EER (0.2009/0.4530/0.3435) are higher than both
+e007-A's (0.1805/0.3327/0.2565) and e007-B's (0.1167/0.3276/0.2629).
 
-## Central Finding: Decodability Is Not Generalization
+## Observation: Decodability and OOD Performance Are Decoupled
 
-The corpus probe remains high across interventions, while OOD EER changes
-substantially. Corpus separability and cross-corpus generalization are therefore
-decoupled: domain information can remain highly decodable without being the
-dominant factor controlling OOD performance.
+The corpus probe remains high across interventions, while OOD EER varies
+across interventions (see Canonical OOD Table above). Corpus separability and
+cross-corpus development-tier OOD performance are therefore decoupled: domain
+information can remain highly decodable without being the dominant factor
+controlling development-tier OOD performance.
 
 ## Domain-Reliance Score (Frozen Models)
 
