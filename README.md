@@ -31,9 +31,15 @@ provisional pending Roadmap Step 6, 5-seed replication.
 ## Setup
 
 ```bash
-pip install -e .
-pip install -r requirements.txt
+pip install -r requirements.lock.local4060 \
+  --extra-index-url https://download.pytorch.org/whl/cu121
+pip install -e . --no-deps
 ```
+
+The editable install is required even after installing the lockfile: the lockfile pins
+third-party packages but cannot install this repository's local `audioshield` package.
+See [`docs/repro_2a_harness_fixes.md`](docs/repro_2a_harness_fixes.md) for the pinned
+reproduction runbook and its evidence record.
 
 Datasets are not in this repo. Set `data_root` to the local dataset root.
 Training corpora: ASVspoof5, DiffSSD, FakeOrReal, VCTK. Held-out OOD corpora:
