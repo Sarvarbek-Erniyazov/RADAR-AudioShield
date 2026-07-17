@@ -1,7 +1,14 @@
 """Commit-7 reproduction gate. Audit ref: v3 Step 2a closing requirement ("reproduce
 before refactor"). Loads e007 checkpoints, verifies hashes, re-runs cross_test on the
-v2 manifests, asserts EERs match the committed experiments/e007/*.json within tolerance.
-Proves the 2a repairs changed instruments, not the phenomenon.
+``manifests/v2`` pin, and asserts EERs match the committed experiments/e007/*.json
+within tolerance. Proves the 2a repairs changed instruments, not the phenomenon.
+
+Manifest-pin evidence: ``README.md:45`` documented the original ``manifests``
+cross-test command; C0 compared the legacy and v2 files row-for-row over every shared
+column and found all six identical at their full reference populations (ITW 31,779;
+ReplayDF 52,320; AI4T 3,148; ASVspoof5 323,307; DiffSSD 94,226; FakeOrReal 69,300).
+The gate therefore pins ``manifests/v2`` without changing the reproduced examples.
+
 Usage: python scripts/reproduce_eval.py [--tol 0.002]
 """
 import argparse, hashlib, json, subprocess, sys
@@ -14,6 +21,9 @@ EXPECTED = {  # from experiments/e007/*.json (committed)
     "e007_B_fresh": {"inthewild": 0.1167, "replaydf": 0.3276, "ai4t": 0.2629},
     "e007_C_xlsr_fresh": {"inthewild": 0.2009, "replaydf": 0.4530, "ai4t": 0.3435},
 }
+EVAL_CORPORA = ("inthewild", "replaydf", "ai4t")
+DEV_CORPORA = ("diffssd", "fakeorreal", "asvspoof5")
+MANIFEST_DIR = "manifests/v2"
 
 def sha256(p):
     h = hashlib.sha256()
@@ -30,6 +40,27 @@ def load_expected_hashes():
             path = parts[1].lstrip("*")     # sha256sum binary-mode marker
             out[path] = parts[0]            # path -> sha
     return out
+
+
+def build_cmd(run: str, ckpt: Path, data_root: str) -> list[str]:
+    """Build one cross-test child command without touching the filesystem."""
+    cmd = [
+        sys.executable,
+        "-m",
+        "audioshield.evaluation.cross_test",
+        "--checkpoint",
+        str(ckpt),
+        "--corpora",
+        *EVAL_CORPORA,
+        "--manifest-dir",
+        MANIFEST_DIR,
+        "--dev-corpora",
+        *DEV_CORPORA,
+    ]
+    if data_root:
+        cmd += ["--data-root", data_root]
+    cmd += ["--out", str(Path(f"repro_{run}.json")), "--force"]
+    return cmd
 
 def main():
     ap = argparse.ArgumentParser()
@@ -66,14 +97,11 @@ def main():
                 f"got {got_sha[:16]}... ({ckpt}); refusing to trust this checkpoint's EERs")
             continue
         print(f"  hash OK (matches CHECKPOINTS.md)", flush=True)
-        cmd = [sys.executable, "-m", "audioshield.evaluation.cross_test",
-               "--checkpoint", str(ckpt)]
-        if args.data_root: cmd += ["--data-root", args.data_root]
+        cmd = build_cmd(run, ckpt, args.data_root)
         out_json = Path(f"repro_{run}.json")
         # --force: this script intentionally overwrites its own scratch output on every
         # re-run of the gate (report finding 3.5 -- cross_test.py now refuses to overwrite
         # by default; this is the one caller that legitimately wants repeat-overwrite).
-        cmd += ["--out", str(out_json), "--force"]
         r = subprocess.run(cmd, capture_output=True, text=True)
         print(r.stdout[-1500:] if r.stdout else "(no stdout)")
         if r.returncode != 0:
