@@ -66,6 +66,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tol", type=float, default=0.002)
     ap.add_argument("--data-root", default="")
+    ap.add_argument(
+        "--preflight",
+        action="store_true",
+        help="validate every child input path and exit before model loading or EER evaluation",
+    )
     args = ap.parse_args()
 
     expected_hashes = load_expected_hashes()
@@ -98,14 +103,21 @@ def main():
             continue
         print(f"  hash OK (matches CHECKPOINTS.md)", flush=True)
         cmd = build_cmd(run, ckpt, args.data_root)
+        if args.preflight:
+            cmd.append("--preflight")
         out_json = Path(f"repro_{run}.json")
         # --force: this script intentionally overwrites its own scratch output on every
         # re-run of the gate (report finding 3.5 -- cross_test.py now refuses to overwrite
         # by default; this is the one caller that legitimately wants repeat-overwrite).
         r = subprocess.run(cmd, capture_output=True, text=True)
-        print(r.stdout[-1500:] if r.stdout else "(no stdout)")
+        if r.stdout:
+            print(r.stdout if args.preflight else r.stdout[-1500:])
+        else:
+            print("(no stdout)")
         if r.returncode != 0:
             failures.append(f"{run}: cross_test exit {r.returncode}\n{r.stderr[-500:]}"); continue
+        if args.preflight:
+            continue
         # parse produced json (path per cross_test's writer)
         prod = json.loads(out_json.read_text()) if out_json.exists() else None
         if prod is None:
@@ -122,11 +134,15 @@ def main():
                 failures.append(f"{run}/{corpus}: |delta|={d:.4f} > tol={args.tol}")
         results[run] = per
 
+    label = "REPRODUCTION PREFLIGHT" if args.preflight else "REPRODUCTION GATE"
     print("\n" + "="*50)
     if failures:
-        print("REPRODUCTION GATE: FAIL"); [print("  -", f) for f in failures]
+        print(f"{label}: FAIL"); [print("  -", f) for f in failures]
         sys.exit(1)
-    print("REPRODUCTION GATE: PASS — 2a repairs preserved the eval phenomenon.")
+    if args.preflight:
+        print("REPRODUCTION PREFLIGHT: PASS — all child inputs resolved before model load.")
+    else:
+        print("REPRODUCTION GATE: PASS — 2a repairs preserved the eval phenomenon.")
 
 if __name__ == "__main__":
     main()
