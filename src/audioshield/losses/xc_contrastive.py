@@ -23,10 +23,14 @@ def cross_corpus_supcon(
     corpus_ids: torch.Tensor,      # [B]
     temperature: float = 0.1,
     cross_corpus_only: bool = True,
-    min_corpora_per_class: int = 2,
 ):
     """Returns (loss_scalar, log_dict). Loss is 0 (with grad-safe path) if no
-    valid positive pairs exist in the batch (degenerate-batch guard)."""
+    valid positive pairs exist in the batch (degenerate-batch guard).
+
+    The min_corpora_per_class guard lives in audioshield.training.supcon_guard
+    (supcon_batch_valid) and is enforced by the CALLER before this function runs
+    (audit §1: a same-named parameter here used to be declared but never read --
+    removed rather than duplicating the guard in two places)."""
     device = embeddings.device
     B = embeddings.shape[0]
     z = F.normalize(embeddings, dim=1)

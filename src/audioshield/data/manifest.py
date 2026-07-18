@@ -32,6 +32,12 @@ class ManifestRow:
     split: str
     attack: str
     bona_fide_source: str
+    source_id: str = "NA"
+    speaker_id: str = "NA"
+    generator_id: str = "NA"
+    channel_id: str = "NA"
+    language: str = "NA"
+    platform_id: str = "NA"
 
     def validate(self) -> None:
         if self.target not in (0, 1):
@@ -71,7 +77,8 @@ def read_manifest(
     rows: list[ManifestRow] = []
     with path.open("r", newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
-        missing = set(FIELDNAMES) - set(reader.fieldnames or [])
+        CORE = {'utt_id','path','target','corpus','split','attack','bona_fide_source'}
+        missing = CORE - set(reader.fieldnames or [])
         if missing:
             raise ValueError(f"{path}: manifest missing columns {missing}")
         for record in reader:
@@ -88,6 +95,12 @@ def read_manifest(
                     split=record["split"],
                     attack=record["attack"],
                     bona_fide_source=record["bona_fide_source"],
+                    source_id=record.get("source_id", "NA"),
+                    speaker_id=record.get("speaker_id", "NA"),
+                    generator_id=record.get("generator_id", "NA"),
+                    channel_id=record.get("channel_id", "NA"),
+                    language=record.get("language", "NA"),
+                    platform_id=record.get("platform_id", "NA"),
                 )
             )
     return rows

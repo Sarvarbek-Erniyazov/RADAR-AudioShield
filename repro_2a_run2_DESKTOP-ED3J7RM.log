@@ -1,0 +1,45 @@
+
+=== e007_A_fresh :: runs\e007_A_fresh\best.pt ===
+  sha256=dedef2681511be52...
+  hash OK (matches CHECKPOINTS.md)
+[runtime] torch=2.5.1+cu121 cuda_runtime=12.1
+[runtime] device=cuda gpu_index=0 gpu_name=NVIDIA TITAN RTX capability=7.5 total_mem=24.00GB
+[cross_test] using model config saved in checkpoint
+
+
+=== e007_B_fresh :: runs\e007_B_fresh\best.pt ===
+  sha256=549451c4e600ab9f...
+  hash OK (matches CHECKPOINTS.md)
+[runtime] torch=2.5.1+cu121 cuda_runtime=12.1
+[runtime] device=cuda gpu_index=0 gpu_name=NVIDIA TITAN RTX capability=7.5 total_mem=24.00GB
+[cross_test] using model config saved in checkpoint
+
+
+=== e007_C_xlsr_fresh :: runs\e007_C_xlsr_fresh\best.pt ===
+  sha256=c91f2bfc600a0231...
+  hash OK (matches CHECKPOINTS.md)
+[runtime] torch=2.5.1+cu121 cuda_runtime=12.1
+[runtime] device=cuda gpu_index=0 gpu_name=NVIDIA TITAN RTX capability=7.5 total_mem=24.00GB
+[cross_test] using model config saved in checkpoint
+
+
+==================================================
+REPRODUCTION GATE: FAIL
+  - e007_A_fresh: cross_test exit 1
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\azimb\anaconda3\envs\repro_2a\Lib\site-packages\transformers\modeling_utils.py", line 1057, in _get_resolved_checkpoint_files
+    raise OSError(
+OSError: microsoft/wavlm-large does not appear to have a file named model.safetensors or model.safetensors.index.json and thus cannot be loaded with `safetensors`. Please make sure that the model has been saved with `safe_serialization=True` or do not set `use_safetensors=True`.
+
+  - e007_B_fresh: cross_test exit 1
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\azimb\anaconda3\envs\repro_2a\Lib\site-packages\transformers\modeling_utils.py", line 1057, in _get_resolved_checkpoint_files
+    raise OSError(
+OSError: microsoft/wavlm-large does not appear to have a file named model.safetensors or model.safetensors.index.json and thus cannot be loaded with `safetensors`. Please make sure that the model has been saved with `safe_serialization=True` or do not set `use_safetensors=True`.
+
+  - e007_C_xlsr_fresh: cross_test exit 1
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\azimb\anaconda3\envs\repro_2a\Lib\site-packages\transformers\modeling_utils.py", line 1057, in _get_resolved_checkpoint_files
+    raise OSError(
+OSError: facebook/wav2vec2-xls-r-300m does not appear to have a file named model.safetensors or model.safetensors.index.json and thus cannot be loaded with `safetensors`. Please make sure that the model has been saved with `safe_serialization=True` or do not set `use_safetensors=True`.
+

@@ -1,0 +1,17 @@
+# utt_id per line; comments allowed. Provenance required for every entry.
+fakeorreal/for-original/training/fake/file13424.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file15746.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file16643.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file17407.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file17450.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file19851.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file27206.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file27643.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file27839.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file30959.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file31017.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file32972.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file5323.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/training/fake/file9875.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/validation/fake/file16165.mp3  # corrupt MPEG header, found 2026-07-10 extraction
+fakeorreal/for-original/validation/fake/file31606.mp3  # corrupt MPEG header, found 2026-07-10 extraction

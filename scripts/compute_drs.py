@@ -13,6 +13,16 @@ from audioshield.data.manifest import read_manifest
 from audioshield.data.unified_dataset import UnifiedAudioDataset, collate_unified
 from audioshield.models.detector import AudioShieldX
 
+import warnings
+warnings.warn(
+    "scripts/compute_drs.py is out of 2a scope and known-broken: collect_embeddings() "
+    "still pools all corpora (including VCTK, bona-fide-only) uniformly for "
+    "domain-subspace estimation -- the audit §3.3 class-confound is NOT fixed here. "
+    "This script is superseded by Roadmap v3 Step 3's DRS validity gate; "
+    "see docs/2a_scope_notes.md.",
+    DeprecationWarning, stacklevel=2,
+)
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 CAP = 400            # clean dev utts per corpus for embedding/subspace
 SEED = 13

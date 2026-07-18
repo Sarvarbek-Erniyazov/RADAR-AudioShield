@@ -177,7 +177,8 @@ def threshold_from_dev(model, dev_manifests, data_root, device, sr, dur, use_amp
     return float(thr[idx])
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI parser so callers can validate child commands in tests."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--model-config", default="configs/models/audioshield_x_v1.yaml")
@@ -194,12 +195,116 @@ def main():
     ap.add_argument("--bootstrap-reps", type=int, default=1000)
     ap.add_argument("--bootstrap-seed", type=int, default=13)
     ap.add_argument("--out", default=None)
-    args = ap.parse_args()
+    ap.add_argument("--force", action="store_true",
+                    help="overwrite --out (or the derived default path) if it already exists")
+    ap.add_argument(
+        "--preflight",
+        action="store_true",
+        help="validate checkpoint/config/manifests and sample audio paths, then exit before model load",
+    )
+    return ap
+
+
+def _resolved_audio_path(data_root: str | Path, manifest_path: str) -> Path:
+    path = Path(manifest_path)
+    return path if path.is_absolute() else Path(data_root) / path
+
+
+def _run_preflight(args: argparse.Namespace) -> int:
+    """Validate every runtime input class before allocating or loading a model."""
+    table = []
+    failures = []
+
+    def record_file(role: str, name: str, path: Path) -> None:
+        resolved = path.resolve(strict=False)
+        try:
+            stat = resolved.stat()
+            if not resolved.is_file():
+                raise OSError("not a regular file")
+        except OSError as exc:
+            table.append((role, name, "FAIL", "-", "0/1", str(resolved)))
+            failures.append(f"{role}/{name}: {resolved}: {exc}")
+            return
+        table.append((role, name, "OK", "-", "1/1", f"{resolved} ({stat.st_size} bytes)"))
+
+    def record_corpus(role: str, corpus: str, split: str | None) -> None:
+        manifest = (Path(args.manifest_dir) / f"{corpus}.csv").resolve(strict=False)
+        try:
+            if not manifest.is_file():
+                raise FileNotFoundError("manifest is not a regular file")
+            rows = read_manifest(
+                manifest,
+                splits=[split] if split else None,
+                corpora=[corpus],
+            )
+        except Exception as exc:
+            table.append((role, corpus, "FAIL", "0", "0/0", str(manifest)))
+            failures.append(f"{role}/{corpus}: {manifest}: {exc}")
+            return
+
+        if role == "dev":
+            import random
+
+            random.Random(7).shuffle(rows)
+            rows = rows[:1000]
+        elif args.max_items and len(rows) > args.max_items:
+            import random
+
+            random.Random(13).shuffle(rows)
+            rows = rows[:args.max_items]
+
+        if not rows:
+            table.append((role, corpus, "FAIL", "0", "0/0", str(manifest)))
+            failures.append(f"{role}/{corpus}: {manifest}: zero runtime rows")
+            return
+
+        checked = 0
+        corpus_failures = []
+        for row in rows[:25]:
+            audio = _resolved_audio_path(args.data_root, row.path).resolve(strict=False)
+            try:
+                audio.stat()
+                if not audio.is_file():
+                    raise OSError("not a regular file")
+            except OSError as exc:
+                corpus_failures.append(f"{audio}: {exc}")
+            else:
+                checked += 1
+
+        expected = min(25, len(rows))
+        status = "OK" if not corpus_failures and checked == expected else "FAIL"
+        table.append(
+            (role, corpus, status, str(len(rows)), f"{checked}/{expected}", str(manifest))
+        )
+        failures.extend(f"{role}/{corpus}: {failure}" for failure in corpus_failures)
+
+    record_file("config", "model", Path(args.model_config))
+    record_file("checkpoint", "model", Path(args.checkpoint))
+    for corpus in args.dev_corpora:
+        record_corpus("dev", corpus, "val")
+    for corpus in args.corpora:
+        record_corpus("heldout", corpus, None)
+
+    print("=== PREFLIGHT OK/FAIL TABLE ===")
+    print(f"{'role':10s} {'name':14s} {'status':6s} {'rows':>8s} {'audio':>8s}  path")
+    for role, name, status, rows, checked, path in table:
+        print(f"{role:10s} {name:14s} {status:6s} {rows:>8s} {checked:>8s}  {path}")
+    for failure in failures:
+        print(f"PREFLIGHT FAILURE: {failure}")
+    print("PREFLIGHT OK" if not failures else "PREFLIGHT FAIL")
+    return 0 if not failures else 1
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
     if args.max_items:
         print(
             "[cross_test][sanity] --max-items is set; this output is capped "
             "and must not be reported as the full-corpus OOD result."
         )
+
+    if args.preflight:
+        return _run_preflight(args)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     describe_device(device)
@@ -297,30 +402,50 @@ def main():
             continue
         Xs.append(emb[m]); ys += list(bsrc[m])
     probe_acc = None
-    if Xs:
+    probe_error = None
+    if Xs and os.environ.get("AUDIOSHIELD_SKIP_BONA_PROBE") == "1":
+        probe_error = "skipped via AUDIOSHIELD_SKIP_BONA_PROBE=1"
+        print(f"  bona-fide probe SKIPPED ({probe_error})")
+    elif Xs:
         X = np.concatenate(Xs, 0); y = np.array(ys)
         if len(set(y)) >= 2:
-            from sklearn.linear_model import LogisticRegression
+            from audioshield.evaluation.grouped_probe import grouped_probe
             from sklearn.preprocessing import StandardScaler
-            from sklearn.model_selection import cross_val_score
-            Xn = StandardScaler().fit_transform(X)
-            clf = LogisticRegression(max_iter=2000)
-            probe_acc = float(cross_val_score(clf, Xn, y, cv=3).mean())
-            chance = 1.0 / len(set(y))
-            print(f"probe acc = {probe_acc:.4f}  (chance = {chance:.4f}, {len(set(y))} domains)")
-            print(f"  -> {'NEAR CHANCE: invariant (BMI worked)' if probe_acc < chance*1.5 else 'ABOVE CHANCE: residual corpus signal'}")
+            # NOTE: cache carries no source_id/speaker_id, so we cannot group by recording
+            # here yet (audit §4.7). Until source_id is threaded into the cache tuple, we
+            # report the HONEST-BASELINE version: balanced accuracy + macro-F1 vs the true
+            # majority baseline (not 1/n_domains), ungrouped. This is a strict improvement
+            # over raw-accuracy-vs-uniform-chance and does NOT overstate invariance.
+            # Grouping upgrade tracked in docs/probe_wiring_todo.md.
+            probe_res = grouped_probe(Xn := StandardScaler().fit_transform(X), y,
+                                      meta=None, n_splits=3, seed=13)
+            probe_acc = probe_res["balanced_accuracy"]
+            base = probe_res["majority_baseline"]
+            print(f"probe balanced_acc = {probe_acc:.4f}  (honest majority baseline = {base:.4f}, "
+                  f"{probe_res.get('n_groups','?')} groups, {len(set(y))} domains)")
+            print(f"  -> {'NEAR BASELINE: low residual corpus signal' if probe_acc < base + 0.10 else 'ABOVE BASELINE: residual corpus signal decodable'}")
 
     result = {"checkpoint": args.checkpoint, "epoch": ckpt.get("epoch"),
               "threshold": thr, "per_corpus": table, "kwok": kwok,
-              "bona_probe_acc": probe_acc,
+              "bona_probe_acc": probe_acc, "bona_probe_detail": (probe_res if "probe_res" in dir() else None),
               "reported_full_corpora": not bool(args.max_items),
               "max_items": int(args.max_items),
               "bootstrap_reps": int(args.bootstrap_reps)}
-    out = args.out or f"experiments/e001_unified_v1/crosstest_{Path(args.checkpoint).stem}.json"
-    Path(out).parent.mkdir(parents=True, exist_ok=True)
-    Path(out).write_text(json.dumps(result, indent=2))
+    # Default output lives beside the checkpoint and is namespaced by the checkpoint's
+    # own parent dir name, not just its (often shared, e.g. "best") stem -- prevents
+    # e007_A/B/C all colliding on one shared default path (report finding 3.5, High).
+    ckpt_path = Path(args.checkpoint)
+    default_name = f"crosstest_{ckpt_path.parent.name}_{ckpt_path.stem}.json"
+    out = Path(args.out) if args.out else ckpt_path.parent / default_name
+    if out.exists() and not args.force:
+        raise SystemExit(
+            f"[cross_test] refusing to overwrite existing {out} -- pass --force to overwrite, "
+            "or choose a different --out (prevents silent last-writer-wins collisions)."
+        )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2))
     print(f"\nwrote {out}")
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

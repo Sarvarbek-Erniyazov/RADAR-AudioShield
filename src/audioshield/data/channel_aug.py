@@ -17,16 +17,36 @@ import torch
 from pathlib import Path
 from scipy.signal import fftconvolve
 
-# openSLR-28 simulated RIRs; optional. Point at your unzipped path or leave as-is.
-RIR_DIR = Path("../datasets/rirs/RIRS_NOISES/simulated_rirs")
+# openSLR-28 simulated RIRs. Root comes from config (augmentation.rir_root), set via
+# configure_rir_root() -- no hard-coded path, no silent no-op on a missing/misconfigured
+# asset dir (audit §5).
+_RIR_ROOT: Path | None = None
 _rir_cache = None
-_warned_no_rir = False
+_rir_read_failures = 0
+
+
+def configure_rir_root(root: str | Path) -> None:
+    """Set the RIR corpus root. Call once at startup (see aug_assets.resolve_aug_assets)."""
+    global _RIR_ROOT, _rir_cache
+    _RIR_ROOT = Path(root)
+    _rir_cache = None
 
 
 def _rirs():
     global _rir_cache
+    if _RIR_ROOT is None:
+        raise RuntimeError(
+            "[channel_aug] RIR root not configured -- call "
+            "channel_aug.configure_rir_root(cfg['augmentation']['rir_root']) at startup "
+            "before enabling reverb augmentation (audit §5: hard-coded-path silent no-op "
+            "is forbidden)."
+        )
     if _rir_cache is None:
-        _rir_cache = sorted(RIR_DIR.rglob("*.wav")) if RIR_DIR.exists() else []
+        if not _RIR_ROOT.is_dir():
+            raise RuntimeError(f"[channel_aug] configured RIR root does not exist: {_RIR_ROOT}")
+        _rir_cache = sorted(_RIR_ROOT.rglob("*.wav"))
+        if not _rir_cache:
+            raise RuntimeError(f"[channel_aug] configured RIR root has no .wav files: {_RIR_ROOT}")
     return _rir_cache
 
 
@@ -77,18 +97,18 @@ def mu_law(x, rng, mu=255.0):
 
 
 def rir_reverb(x, rng):
-    global _warned_no_rir
+    global _rir_read_failures
     rirs = _rirs()
-    if not rirs:
-        if not _warned_no_rir:
-            print(f"[channel_aug] no RIRs at {RIR_DIR}; reverb op is a no-op")
-            _warned_no_rir = True
-        return x
+    rir_path = rirs[int(rng.integers(len(rirs)))]
     try:
         import soundfile as sf
-        rir, _ = sf.read(str(rirs[int(rng.integers(len(rirs)))]), dtype="float32")
-    except Exception:
-        return x
+        rir, _ = sf.read(str(rir_path), dtype="float32")
+    except Exception as e:
+        _rir_read_failures += 1
+        raise RuntimeError(
+            f"[channel_aug] RIR read failed ({_rir_read_failures} total failures so far): "
+            f"{rir_path}: {e}"
+        ) from e
     if rir.ndim > 1:
         rir = rir[:, 0]
     rir = rir / (np.max(np.abs(rir)) + 1e-9)

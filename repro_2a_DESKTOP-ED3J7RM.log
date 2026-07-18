@@ -1,0 +1,27 @@
+
+=== e007_A_fresh :: runs\e007_A_fresh\best.pt ===
+  sha256=dedef2681511be52...
+  hash OK (matches CHECKPOINTS.md)
+(no stdout)
+
+=== e007_B_fresh :: runs\e007_B_fresh\best.pt ===
+  sha256=549451c4e600ab9f...
+  hash OK (matches CHECKPOINTS.md)
+(no stdout)
+
+=== e007_C_xlsr_fresh :: runs\e007_C_xlsr_fresh\best.pt ===
+  sha256=c91f2bfc600a0231...
+  hash OK (matches CHECKPOINTS.md)
+(no stdout)
+
+==================================================
+REPRODUCTION GATE: FAIL
+  - e007_A_fresh: cross_test exit 1
+C:\Users\azimb\anaconda3\envs\repro_2a\python.exe: Error while finding module specification for 'audioshield.evaluation.cross_test' (ModuleNotFoundError: No module named 'audioshield')
+
+  - e007_B_fresh: cross_test exit 1
+C:\Users\azimb\anaconda3\envs\repro_2a\python.exe: Error while finding module specification for 'audioshield.evaluation.cross_test' (ModuleNotFoundError: No module named 'audioshield')
+
+  - e007_C_xlsr_fresh: cross_test exit 1
+C:\Users\azimb\anaconda3\envs\repro_2a\python.exe: Error while finding module specification for 'audioshield.evaluation.cross_test' (ModuleNotFoundError: No module named 'audioshield')
+

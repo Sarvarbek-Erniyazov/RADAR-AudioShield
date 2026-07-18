@@ -15,10 +15,14 @@ import random
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
+from audioshield.data import channel_aug
+from audioshield.data.aug_assets import resolve_aug_assets
+from audioshield.data.balanced_weighting import compute_joint_weights, empirical_class_corpus_mi
 from audioshield.data.manifest import read_manifest
 from audioshield.data.unified_dataset import UnifiedAudioDataset, collate_unified
 from audioshield.models.detector import AudioShieldX
@@ -31,6 +35,7 @@ from audioshield.training.optim import (
 from audioshield.training.loop_e002 import train_one_epoch_e002, validate_e002, probe_corpus_during_train
 from audioshield.training.early_stopping import MeanCrossCorpusStopper, mean_cross_corpus_eer
 from audioshield.utils.runtime import describe_device
+from audioshield.utils.seeding import seed_everything, dataloader_seed_kwargs
 
 
 def load_cfg(exp_path, model_path):
@@ -90,21 +95,28 @@ def _configure_backbone_finetuning(model, cfg: dict) -> bool:
     return True
 
 
-def make_balanced_sampler(train_rows, num_samples):
-    """Per-sample weight = 1/(corpus size) * 1/(class size within corpus).
-    Equalizes corpus contribution AND pulls classes toward 50/50."""
-    from collections import Counter, defaultdict
-    n_corpora = len(set(r.corpus for r in train_rows))
-    cls_n = Counter((r.corpus, r.target) for r in train_rows)
-    classes_in_corpus = defaultdict(set)
-    for r in train_rows:
-        classes_in_corpus[r.corpus].add(r.target)
-    weights = [
-        (1.0 / n_corpora)
-        * (1.0 / len(classes_in_corpus[r.corpus]))
-        * (1.0 / cls_n[(r.corpus, r.target)])
-        for r in train_rows
-    ]
+def make_balanced_sampler(train_rows, num_samples, cfg, seed):
+    """Joint class x corpus sampling weights (audit §4.4/§3.3), with a startup
+    MI(corpus;class) guard over a seeded simulated epoch -- hard-fails rather than
+    silently training on a still-confounded sampler."""
+    train_cfg = cfg["train"]
+    weights = compute_joint_weights(
+        train_rows,
+        bona_only_corpus_policy=train_cfg.get("bona_only_corpus_policy", "exclude_from_class_conditional"),
+        min_corpora_per_class=int(train_cfg.get("min_corpora_per_class", 2)),
+    )
+    max_mi = float(train_cfg.get("max_corpus_class_mi", 0.05))
+    rng = np.random.default_rng(seed)
+    sim_idx = rng.choice(len(train_rows), size=min(len(train_rows), 40000), replace=True, p=weights)
+    sim_t = np.array([int(train_rows[i].target) for i in sim_idx])
+    sim_c = np.array([train_rows[i].corpus for i in sim_idx])
+    mi = empirical_class_corpus_mi(sim_t, sim_c)
+    if mi > max_mi:
+        raise RuntimeError(
+            f"[e002] startup guard: MI(corpus;class)={mi:.4f} bits > max_corpus_class_mi={max_mi} "
+            "-- sampler still confounds corpus with class (audit §4.4/§3.3)."
+        )
+    print(f"[e002] balanced sampler MI(corpus;class) guard: {mi:.4f} bits <= {max_mi} -- OK")
     import torch as _t
     return WeightedRandomSampler(_t.DoubleTensor(weights),
                                  num_samples=num_samples, replacement=True)
@@ -138,6 +150,21 @@ def main():
             d = d.setdefault(k, {})
         d[parts[-1]] = pv
         print(f"[override] {key} = {pv!r}")
+
+    seed = int(cfg["experiment"]["seed"])
+    seed_info = seed_everything(seed)
+    print(f"[e002] seeded: {seed_info}")
+
+    # train_ds/dev "_deg" loaders below always construct with degrade=True, so
+    # augmentation assets are mandatory here -- hard-fails if missing/misconfigured
+    # rather than silently no-op'ing reverb (audit §5).
+    aug_fingerprint = resolve_aug_assets(cfg)
+    if "rir_root" in aug_fingerprint:
+        channel_aug.configure_rir_root(cfg["augmentation"]["rir_root"])
+        print(f"[e002] RIR root configured: {aug_fingerprint['rir_root']['root']} "
+              f"({aug_fingerprint['rir_root']['n_files']} files, "
+              f"sha256={aug_fingerprint['rir_root']['listing_sha256'][:12]}...)")
+
     out = Path(args.output_dir); out.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     describe_device(device)
@@ -160,18 +187,20 @@ def main():
     if cfg["train"].get("balanced_sampler", False):
         steps = cfg["train"].get("max_steps_per_epoch", 0) or (len(train_ds)//cfg["train"]["batch_size"])
         n_samp = steps * cfg["train"]["batch_size"]
-        sampler = make_balanced_sampler(train_rows, n_samp)
+        sampler = make_balanced_sampler(train_rows, n_samp, cfg, seed)
         print(f"[e005] balanced sampler: {n_samp} samples/epoch across "
               f"{len(set(r.corpus for r in train_rows))} corpora")
         train_loader = DataLoader(
             train_ds, batch_size=cfg["train"]["batch_size"], sampler=sampler,
             collate_fn=collate_unified, drop_last=True,
-            **_loader_kwargs(cfg["train"].get("num_workers", 4), device))
+            **_loader_kwargs(cfg["train"].get("num_workers", 4), device),
+            **dataloader_seed_kwargs(seed))
     else:
         train_loader = DataLoader(
             train_ds, batch_size=cfg["train"]["batch_size"], shuffle=True,
             collate_fn=collate_unified, drop_last=True,
-            **_loader_kwargs(cfg["train"].get("num_workers", 4), device))
+            **_loader_kwargs(cfg["train"].get("num_workers", 4), device),
+            **dataloader_seed_kwargs(seed))
 
     dev_loaders = {}
     val_workers = int(cfg["train"].get("val_num_workers", min(2, int(cfg["train"].get("num_workers", 4)))))
@@ -192,7 +221,8 @@ def main():
         dev_loaders[c + "_clean"] = DataLoader(
             ds_clean, batch_size=val_batch_size, shuffle=False,
             collate_fn=collate_unified,
-            **_loader_kwargs(val_workers, device))
+            **_loader_kwargs(val_workers, device),
+            **dataloader_seed_kwargs(seed))
         ds_deg = UnifiedAudioDataset(rows, exp["data_root"], sample_rate=exp["sample_rate"],
                                      duration_seconds=exp["duration_seconds"], random_crop=False,
                                      corpus_vocab=corpus_vocab, bona_source_vocab=bona_vocab,
@@ -200,7 +230,8 @@ def main():
         dev_loaders[c + "_deg"] = DataLoader(
             ds_deg, batch_size=val_batch_size, shuffle=False,
             collate_fn=_deg_collate,
-            **_loader_kwargs(val_workers, device))
+            **_loader_kwargs(val_workers, device),
+            **dataloader_seed_kwargs(seed))
 
     model = AudioShieldX(cfg).to(device)
     xc_cfg = cfg.get("xc_contrastive", {})
@@ -247,12 +278,15 @@ def main():
     json.dump({"corpus_vocab": corpus_vocab, "bona_vocab": bona_vocab,
                "consistency": cfg["consistency"],
                "cfg": {k: cfg[k] for k in cfg if k != 'model'},
-               "model_cfg": cfg.get("model", {})},
+               "model_cfg": cfg.get("model", {}),
+               "seed_info": seed_info,
+               "aug_assets": aug_fingerprint},
               open(out / "run_config.json", "w"), indent=2)
 
     if args.max_train_batches > 0:
         small = DataLoader(train_ds, batch_size=cfg["train"]["batch_size"], shuffle=True,
-                           num_workers=0, collate_fn=collate_unified, drop_last=True)
+                           num_workers=0, collate_fn=collate_unified, drop_last=True,
+                           **dataloader_seed_kwargs(seed))
         t = train_one_epoch_e002(model, small, optimizer, scaler, device, cfg,
                                  use_amp=use_amp, max_steps=args.max_train_batches)
         print("DRY train terms:", {k: round(v, 4) for k, v in t.items()})
@@ -285,13 +319,16 @@ def main():
                                      use_amp=use_amp,
                                      max_steps=cfg["train"].get("max_steps_per_epoch", 0))
         per = validate_e002(model, dev_loaders, device, use_amp)
-        probe_acc = None
+        probe_res = None
         if cfg["train"].get("probe_every_epoch", False):
-            probe_acc = probe_corpus_during_train(model, dev_loaders, device, use_amp)
+            probe_res = probe_corpus_during_train(model, dev_loaders, device, use_amp)
         deg = {k: v for k, v in per.items() if k.endswith("_deg")}
         mean_eer = mean_cross_corpus_eer(deg or per)
         improved, stop = stopper.update(mean_eer, epoch)
-        probe_str = f"probe={probe_acc:.4f} " if probe_acc is not None else ""
+        probe_str = ""
+        if probe_res is not None:
+            probe_str = (f"probe_bacc={probe_res['balanced_accuracy']:.4f} "
+                         f"probe_base={probe_res['majority_baseline']:.4f} ")
         skip_str = (
             f"skip_loss={terms.get('skipped_nonfinite_loss', 0)} "
             f"skip_grad={terms.get('skipped_nonfinite_grad', 0)} "
@@ -301,6 +338,7 @@ def main():
             xc_str = (
                 f"xc_npos={terms.get('xc_npos', 0.0):.1f} "
                 f"xc_skip={terms.get('xc_skipped', 0.0):.3f} "
+                f"xc_guard_skip={terms.get('xc_guard_skipped_batches', 0)} "
             )
         print(f"epoch={epoch} dt={time.time()-t0:.0f}s "
               f"steps={terms.get('steps','?')} loss={terms.get('loss',float('nan')):.4f} "

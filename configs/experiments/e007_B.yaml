@@ -1,11 +1,13 @@
 # e007-B — Contrastive-guided fine-tuning (TARGET MODEL). A + cross-corpus contrastive.
 experiment:
   train_corpora: ["asvspoof5", "diffssd", "fakeorreal", "vctk"]
-  manifest_dir: "manifests"
+  manifest_dir: "manifests/v2"
   data_root: ".."
   sample_rate: 16000
   duration_seconds: 4.0
   seed: 13
+augmentation:
+  rir_root: "../datasets/rirs/RIRS_NOISES/simulated_rirs"   # SET on server to the RIR corpus path
 consistency:
   lambda_kl: 0.0
   lambda_emb: 0.0

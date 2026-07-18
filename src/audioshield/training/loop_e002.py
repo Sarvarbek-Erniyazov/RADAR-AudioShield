@@ -11,6 +11,7 @@ from tqdm.auto import tqdm
 from ..losses.classification import spoof_bce
 from ..losses.consistency import consistency_loss
 from ..losses.xc_contrastive import cross_corpus_supcon
+from ..training.supcon_guard import supcon_batch_valid
 
 
 def train_one_epoch_e002(model, loader, optimizer, scaler, device, cfg,
@@ -27,9 +28,11 @@ def train_one_epoch_e002(model, loader, optimizer, scaler, device, cfg,
     xc_temp = float(xc.get("temperature", 0.1))
     xc_cco = bool(xc.get("cross_corpus_only", True))
     xc_use_projection = bool(xc.get("use_projection_head", False))
+    xc_min_corpora = int(xc.get("min_corpora_per_class", 2))
     totals = defaultdict(float); steps = 0
     skipped_nonfinite_loss = 0
     skipped_nonfinite_grad = 0
+    xc_guard_skipped_batches = 0
     progress_every = int(cfg.get("train", {}).get("progress_every", 25))
     total = max_steps or (len(loader) if hasattr(loader, "__len__") else None)
 
@@ -66,10 +69,20 @@ def train_one_epoch_e002(model, loader, optimizer, scaler, device, cfg,
                 lambda_kl=lam_kl, lambda_emb=lam_emb, teacher=True)
 
             if xc_on and w_xc > 0.0:
-                xc_emb = out["contrastive_embedding"] if xc_use_projection else out["embedding"]
-                l_xc, xc_log = cross_corpus_supcon(
-                    xc_emb, target, corpus_id,
-                    temperature=xc_temp, cross_corpus_only=xc_cco)
+                valid, _guard_diag = supcon_batch_valid(
+                    corpus_id.tolist(), target.tolist(), min_corpora_per_class=xc_min_corpora)
+                if valid:
+                    xc_emb = out["contrastive_embedding"] if xc_use_projection else out["embedding"]
+                    l_xc, xc_log = cross_corpus_supcon(
+                        xc_emb, target, corpus_id,
+                        temperature=xc_temp, cross_corpus_only=xc_cco)
+                else:
+                    # batch has a class spanning too few corpora for valid cross-corpus
+                    # positives -- skip the term rather than silently computing it on a
+                    # degenerate batch (audit §1).
+                    l_xc = out["embedding"].sum() * 0.0
+                    xc_log = {"xc_npos": 0.0, "xc_skipped": 1.0}
+                    xc_guard_skipped_batches += 1
             else:
                 l_xc = out["embedding"].sum() * 0.0; xc_log = {}
             loss = w_cls * l_cls + w_con * l_con + w_xc * l_xc
@@ -117,11 +130,13 @@ def train_one_epoch_e002(model, loader, optimizer, scaler, device, cfg,
             "steps": 0,
             "skipped_nonfinite_loss": skipped_nonfinite_loss,
             "skipped_nonfinite_grad": skipped_nonfinite_grad,
+            "xc_guard_skipped_batches": xc_guard_skipped_batches,
         }
     out = {k: v / steps for k, v in totals.items()}
     out["steps"] = steps
     out["skipped_nonfinite_loss"] = skipped_nonfinite_loss
     out["skipped_nonfinite_grad"] = skipped_nonfinite_grad
+    out["xc_guard_skipped_batches"] = xc_guard_skipped_batches
     return out
 
 
@@ -169,11 +184,17 @@ def probe_corpus_during_train(model, loaders_by_corpus, device, use_amp, max_per
         return None
     try:
         from sklearn.preprocessing import StandardScaler
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.model_selection import cross_val_score
+        from audioshield.evaluation.grouped_probe import grouped_probe
+        # Honest-baseline probe (audit §4.7): balanced accuracy + TRUE majority baseline,
+        # replacing raw-accuracy-vs-uniform-chance. Grouping (source_id) is NOT available
+        # in the probe loaders' batch dict {waveform, corpus_id}; recording-level grouping
+        # is deferred to Step 2b (see docs/probe_wiring_todo.md). Ungrouped decodability is
+        # an UPPER bound, so "probe pinned high" remains conservative.
         Xn = StandardScaler().fit_transform(X)
-        clf = LogisticRegression(max_iter=2000)
-        return float(cross_val_score(clf, Xn, y, cv=3).mean())
+        res = grouped_probe(Xn, y, meta=None, n_splits=3, seed=13)
+        return {"balanced_accuracy": res["balanced_accuracy"],
+                "majority_baseline": res["majority_baseline"],
+                "macro_f1": res.get("macro_f1")}
     except Exception as e:
         print(f"[probe][warn] {e}")
         return None
