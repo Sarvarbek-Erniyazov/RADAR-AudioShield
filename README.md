@@ -1,8 +1,8 @@
 # AudioShield - Cross-Corpus Audio Deepfake Detection
 
-A self-supervised audio deepfake detector built on SSL speech backbones and
-evaluated on strictly held-out, real-world OOD corpora: In-the-Wild (ITW),
-ReplayDF, and AI4T.
+A self-supervised audio deepfake detector built on SSL speech backbones,
+evaluated on development-tier, real-world OOD corpora: In-the-Wild (ITW),
+ReplayDF, and AI4T (see RESULTS.md's Disclosure section).
 
 ## Status
 
@@ -42,8 +42,8 @@ See [`docs/repro_2a_harness_fixes.md`](docs/repro_2a_harness_fixes.md) for the p
 reproduction runbook and its evidence record.
 
 Datasets are not in this repo. Set `data_root` to the local dataset root.
-Training corpora: ASVspoof5, DiffSSD, FakeOrReal, VCTK. Held-out OOD corpora:
-ITW, ReplayDF, AI4T.
+Training corpora: ASVspoof5, DiffSSD, FakeOrReal, VCTK. Development-tier OOD
+corpora: ITW, ReplayDF, AI4T.
 
 ## Reproducing A Cross-Test
 
