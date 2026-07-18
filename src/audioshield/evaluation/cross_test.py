@@ -402,7 +402,11 @@ def main(argv=None):
             continue
         Xs.append(emb[m]); ys += list(bsrc[m])
     probe_acc = None
-    if Xs:
+    probe_error = None
+    if Xs and os.environ.get("AUDIOSHIELD_SKIP_BONA_PROBE") == "1":
+        probe_error = "skipped via AUDIOSHIELD_SKIP_BONA_PROBE=1"
+        print(f"  bona-fide probe SKIPPED ({probe_error})")
+    elif Xs:
         X = np.concatenate(Xs, 0); y = np.array(ys)
         if len(set(y)) >= 2:
             from audioshield.evaluation.grouped_probe import grouped_probe

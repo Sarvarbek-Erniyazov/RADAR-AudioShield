@@ -184,3 +184,27 @@ revision and strict load-report validation are unchanged. The network test is no
 strengthened to cover both pinned backbones (previously only
 `facebook/wav2vec2-xls-r-300m`) and will be executed once, for real, on the GPU
 machine as part of run #3.
+
+
+## Run #4 finding — bona-fide probe made optional
+
+Run #4 (2026-07-19, original gflow env) scored all three corpora for all three
+checkpoints — every printed EER again matched the committed references — then
+every child died with Windows exit 3228369023 (0xC0000409,
+STATUS_STACK_BUFFER_OVERRUN) in the post-scoring BONA-FIDE-SOURCE LINEAR PROBE.
+No Python traceback (native crash), so no result JSON was written and the gate
+could not compare EERs. Run #3 had crashed one line earlier (NameError), meaning
+the probe had never actually executed before run #4.
+
+Mechanism: the probe stacks ~40k x 1024 bona-fide embeddings, converts to
+float64 twice (StandardScaler, then grouped_probe), and runs LogisticRegression
+under StratifiedGroupKFold with degenerate grouping (the cache carries no
+source_id, so _derive_groups emits one unique group per row). Native BLAS/OpenMP
+fault under the torch-cu118 + conda-sklearn runtime mix.
+
+Decision: the bona-fide probe is a Step-4 diagnostic (decodability), not gate
+machinery; the gate asserts EERs only. It is now skippable via
+AUDIOSHIELD_SKIP_BONA_PROBE=1, which records bona_probe_acc=null and the reason
+in the result JSON rather than silently omitting it. The gate runs with the
+probe skipped; the crash itself is tracked separately as a 2b item (candidate
+fixes: float32, real grouping via source_id, or thread-count pinning).
