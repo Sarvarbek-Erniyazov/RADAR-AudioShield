@@ -121,3 +121,44 @@ abs(reproduced_eer - expected_eer) <= 0.002
 Threshold, balanced accuracy, and ECE remain recorded diagnostics. They are not asserted
 by this preservation gate, and their presence in the JSON must not be described as an
 additional reproduction guarantee.
+
+## Run #2 deviation
+
+Gate run #1 assumed all three dev-tier corpora (`diffssd`, `fakeorreal`, `asvspoof5`)
+were present on the machine running the gate. Between run #1 and run #2, ASVspoof5 and
+DiffSSD raw audio were found absent from the Syncthing-synced `datasets` folder on both
+machines:
+
+- **Sarvarbek's machine**: verified absent. Only the XLS-R embedding cache and the
+  preserved manifests remain; raw audio was deleted post-embedding, per the project's
+  established storage pattern. Checksum manifests were taken 2026-07-12, immediately
+  before pruning.
+- **Collaborator machine**: verified absent by an exhaustive read-only sweep of all
+  three drives (C/D/E) -- no directories, no archives.
+
+Gate run #2 therefore uses `--dev-corpora fakeorreal` -- the one dev-tier corpus
+confirmed present on both machines -- instead of the canonical three-corpus default.
+`build_cmd` (`scripts/reproduce_eval.py:45`) now takes `dev_corpora` as an optional
+parameter, and `main()` gained a `--dev-corpora` flag (`scripts/reproduce_eval.py:69-75`)
+that threads a caller-supplied list through to it, so this is an explicit, reviewable
+substitution rather than a silent one. The canonical default (`DEV_CORPORA` =
+`diffssd, fakeorreal, asvspoof5`) is unchanged; an invocation without `--dev-corpora`
+still uses all three.
+
+EER is the only quantity the Step 2a reproduction gate asserts (see "Assertion scope"
+above; the comparison loop is `scripts/reproduce_eval.py:133-141`), and it is computed
+from the **held-out** (`inthewild`, `replaydf`, `ai4t`) corpora and the checkpoint's
+already-fixed decision boundary -- threshold-free, and therefore unaffected by which
+dev-tier corpora are available. Development audio is used only to fit the recorded
+(non-asserted) classification threshold that the diagnostic balanced-accuracy and ECE
+numbers depend on; the `threshold`, `bac`, and `ece` fields in `repro_*.json` for run #2
+are **not** comparable to the committed `experiments/e007/*.json` references, since
+they were fit against a single-corpus dev-tier set rather than the original
+three-corpus default.
+
+This is a data-availability deviation, not a code or methodology change. The XLS-R
+embedding caches that Steps 3-5 (reliance instrumentation, the gate, the baseline
+suite) consume are unaffected, since those steps operate on cached embeddings, not raw
+audio. Raw ASVspoof5/DiffSSD audio re-acquisition from public sources is required only
+before Step 6 fine-tuning, which needs raw waveforms for augmentation and backbone
+adaptation.

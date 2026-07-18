@@ -42,7 +42,7 @@ def load_expected_hashes():
     return out
 
 
-def build_cmd(run: str, ckpt: Path, data_root: str) -> list[str]:
+def build_cmd(run: str, ckpt: Path, data_root: str, dev_corpora: tuple[str, ...] = DEV_CORPORA) -> list[str]:
     """Build one cross-test child command without touching the filesystem."""
     cmd = [
         sys.executable,
@@ -55,7 +55,7 @@ def build_cmd(run: str, ckpt: Path, data_root: str) -> list[str]:
         "--manifest-dir",
         MANIFEST_DIR,
         "--dev-corpora",
-        *DEV_CORPORA,
+        *dev_corpora,
     ]
     if data_root:
         cmd += ["--data-root", data_root]
@@ -66,6 +66,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tol", type=float, default=0.002)
     ap.add_argument("--data-root", default="")
+    ap.add_argument(
+        "--dev-corpora",
+        nargs="+",
+        default=list(DEV_CORPORA),
+        help="dev-tier corpora threaded through to each child's --dev-corpora "
+             "(default: canonical DEV_CORPORA)",
+    )
     ap.add_argument(
         "--preflight",
         action="store_true",
@@ -102,7 +109,7 @@ def main():
                 f"got {got_sha[:16]}... ({ckpt}); refusing to trust this checkpoint's EERs")
             continue
         print(f"  hash OK (matches CHECKPOINTS.md)", flush=True)
-        cmd = build_cmd(run, ckpt, args.data_root)
+        cmd = build_cmd(run, ckpt, args.data_root, dev_corpora=tuple(args.dev_corpora))
         if args.preflight:
             cmd.append("--preflight")
         out_json = Path(f"repro_{run}.json")
