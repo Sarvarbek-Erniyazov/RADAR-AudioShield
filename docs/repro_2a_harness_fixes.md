@@ -162,3 +162,25 @@ suite) consume are unaffected, since those steps operate on cached embeddings, n
 audio. Raw ASVspoof5/DiffSSD audio re-acquisition from public sources is required only
 before Step 6 fine-tuning, which needs raw waveforms for augmentation and backbone
 adaptation.
+
+## Run #2 finding: hardened loader forced use_safetensors=True
+
+The hardened backbone loader (`hf_loading.load_backbone`) forced
+`use_safetensors=True` on every `from_pretrained` call. Neither pinned backbone
+publishes safetensors weights -- `microsoft/wavlm-large` and
+`facebook/wav2vec2-xls-r-300m` publish `pytorch_model.bin` only -- so this call could
+never succeed for either backbone.
+
+Run #2 was this code path's first live-Hub execution. `tests/test_hf_loading.py`'s
+`@pytest.mark.network`-marked `test_real_backbone_loads_clean` would have caught this,
+but network-marked tests are deselected by default (`pytest.ini`'s
+`addopts = -q -m "not network and not gpu"`) and this test has therefore been
+deselected on every machine to date -- it never ran, so it never caught this.
+
+`use_safetensors=True` is removed from the `from_pretrained` call
+(`src/audioshield/utils/hf_loading.py`) -- not set to `False`; transformers' own
+default applies instead (prefer safetensors, fall back to `.bin`). The pinned
+revision and strict load-report validation are unchanged. The network test is now
+strengthened to cover both pinned backbones (previously only
+`facebook/wav2vec2-xls-r-300m`) and will be executed once, for real, on the GPU
+machine as part of run #3.

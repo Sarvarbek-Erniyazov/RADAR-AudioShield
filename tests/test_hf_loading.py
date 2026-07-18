@@ -19,5 +19,14 @@ def test_unpinned_revision_refused(tmp_path):
 
 @pytest.mark.network
 def test_real_backbone_loads_clean():
-    from audioshield.utils.hf_loading import load_backbone
-    load_backbone("facebook/wav2vec2-xls-r-300m")
+    """Live-Hub load for both pinned backbones. Run #2 (2026-07-18) found
+    load_backbone() forced use_safetensors=True while neither
+    microsoft/wavlm-large nor facebook/wav2vec2-xls-r-300m publishes
+    safetensors -- this test only covered one backbone and, being
+    network-marked, had never actually been executed on any machine to date,
+    so it caught nothing. Covers both pinned backbones now."""
+    from audioshield.utils.hf_loading import load_backbone, get_pinned_revision
+    for model_name in ("facebook/wav2vec2-xls-r-300m", "microsoft/wavlm-large"):
+        model = load_backbone(model_name)
+        assert model is not None
+        assert model.config._audioshield_pinned_revision == get_pinned_revision(model_name)
