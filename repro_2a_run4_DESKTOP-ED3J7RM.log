@@ -1,0 +1,95 @@
+nohup: ignoring input
+
+=== e007_A_fresh :: runs\e007_A_fresh\best.pt ===
+  sha256=dedef2681511be52...
+  hash OK (matches CHECKPOINTS.md)
+[runtime] torch=2.7.1+cu118 cuda_runtime=11.8
+[runtime] device=cuda gpu_index=0 gpu_name=NVIDIA TITAN RTX capability=7.5 total_mem=24.00GB
+[cross_test] using model config saved in checkpoint
+loaded runs\e007_A_fresh\best.pt (epoch 20)
+dev-EER threshold = 0.7681
+
+=== PER-CORPUS HELD-OUT METRICS ===
+corpus            EER      BAC      ECE  n
+inthewild      0.1805   0.6233   0.2545  31779
+replaydf       0.3327   0.5304   0.4518  52320
+
+
+=== e007_B_fresh :: runs\e007_B_fresh\best.pt ===
+  sha256=549451c4e600ab9f...
+  hash OK (matches CHECKPOINTS.md)
+[runtime] torch=2.7.1+cu118 cuda_runtime=11.8
+[runtime] device=cuda gpu_index=0 gpu_name=NVIDIA TITAN RTX capability=7.5 total_mem=24.00GB
+[cross_test] using model config saved in checkpoint
+loaded runs\e007_B_fresh\best.pt (epoch 8)
+dev-EER threshold = 0.6572
+
+=== PER-CORPUS HELD-OUT METRICS ===
+corpus            EER      BAC      ECE  n
+inthewild      0.1167   0.7440   0.1565  31779
+replaydf       0.3276   0.5535   0.4088  52320
+
+
+=== e007_C_xlsr_fresh :: runs\e007_C_xlsr_fresh\best.pt ===
+  sha256=c91f2bfc600a0231...
+  hash OK (matches CHECKPOINTS.md)
+[runtime] torch=2.7.1+cu118 cuda_runtime=11.8
+[runtime] device=cuda gpu_index=0 gpu_name=NVIDIA TITAN RTX capability=7.5 total_mem=24.00GB
+[cross_test] using model config saved in checkpoint
+loaded runs\e007_C_xlsr_fresh\best.pt (epoch 11)
+dev-EER threshold = 0.8882
+
+=== PER-CORPUS HELD-OUT METRICS ===
+corpus            EER      BAC      ECE  n
+inthewild      0.2009   0.5965   0.1452  31779
+replaydf       0.4530   0.5135   0.3287  52320
+
+
+==================================================
+REPRODUCTION GATE: FAIL
+  - e007_A_fresh: cross_test exit 3228369023
+27<00:00,  5.20batch/s][A
+
+score ai4t:  96%|#########5| 95/99 [00:27<00:00,  5.20batch/s][A
+
+score ai4t:  97%|#########6| 96/99 [00:27<00:00,  5.20batch/s][A
+
+score ai4t:  98%|#########7| 97/99 [00:27<00:00,  5.20batch/s][A
+
+score ai4t:  99%|#########8| 98/99 [00:28<00:00,  5.20batch/s][A
+
+                                                              [A
+held-out corpora: 100%|##########| 3/3 [13:07<00:00, 231.09s/corpus]
+held-out corpora: 100%|##########| 3/3 [13:07<00:00, 262.49s/corpus]
+
+  - e007_B_fresh: cross_test exit 3228369023
+28<00:00,  5.10batch/s][A
+
+score ai4t:  97%|#########6| 96/99 [00:28<00:00,  5.10batch/s][A
+
+score ai4t:  98%|#########7| 97/99 [00:28<00:00,  4.88batch/s][A
+
+score ai4t:  99%|#########8| 98/99 [00:29<00:00,  4.97batch/s][A
+
+score ai4t: 100%|##########| 99/99 [00:29<00:00,  5.85batch/s][A
+
+                                                              [A
+held-out corpora: 100%|##########| 3/3 [13:12<00:00, 231.90s/corpus]
+held-out corpora: 100%|##########| 3/3 [13:12<00:00, 264.07s/corpus]
+
+  - e007_C_xlsr_fresh: cross_test exit 3228369023
+23<00:00,  6.76batch/s][A
+
+score ai4t:  96%|#########5| 95/99 [00:23<00:00,  6.76batch/s][A
+
+score ai4t:  97%|#########6| 96/99 [00:23<00:00,  6.78batch/s][A
+
+score ai4t:  98%|#########7| 97/99 [00:23<00:00,  6.78batch/s][A
+
+score ai4t:  99%|#########8| 98/99 [00:23<00:00,  6.77batch/s][A
+
+                                                              [A
+held-out corpora: 100%|##########| 3/3 [10:58<00:00, 193.30s/corpus]
+held-out corpora: 100%|##########| 3/3 [10:58<00:00, 219.46s/corpus]
+
+EXIT_CODE:1
