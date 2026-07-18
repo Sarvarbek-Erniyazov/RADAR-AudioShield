@@ -406,6 +406,7 @@ def main(argv=None):
         X = np.concatenate(Xs, 0); y = np.array(ys)
         if len(set(y)) >= 2:
             from audioshield.evaluation.grouped_probe import grouped_probe
+            from sklearn.preprocessing import StandardScaler
             # NOTE: cache carries no source_id/speaker_id, so we cannot group by recording
             # here yet (audit §4.7). Until source_id is threaded into the cache tuple, we
             # report the HONEST-BASELINE version: balanced accuracy + macro-F1 vs the true
