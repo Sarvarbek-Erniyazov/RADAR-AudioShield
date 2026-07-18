@@ -1,0 +1,95 @@
+nohup: ignoring input
+
+=== e007_A_fresh :: runs\e007_A_fresh\best.pt ===
+  sha256=dedef2681511be52...
+  hash OK (matches CHECKPOINTS.md)
+[runtime] torch=2.7.1+cu118 cuda_runtime=11.8
+[runtime] device=cuda gpu_index=0 gpu_name=NVIDIA TITAN RTX capability=7.5 total_mem=24.00GB
+[cross_test] using model config saved in checkpoint
+loaded runs\e007_A_fresh\best.pt (epoch 20)
+dev-EER threshold = 0.7681
+
+=== PER-CORPUS HELD-OUT METRICS ===
+corpus            EER      BAC      ECE  n
+inthewild      0.1805   0.6233   0.2545  31779
+replaydf       0.3327   0.5304   0.4518  52320
+ai4t           0.2565   0.5541   0.2518  3148
+
+=== KWOK BONA-FIDE MATRIX (EER per spoof-set x bona-domain) ===
+bona-fide domains (columns): [np.str_('ai4t_real'), np.str_('inthewild_real'), np.str_('replaydf_real')]
+inthewild    mean=0.1850 std=0.0066  {np.str_('ai4t_real'): 0.1801, np.str_('inthewild_real'): 0.1805, np.str_('replaydf_real'): 0.1943}
+replaydf     mean=0.3190 std=0.0099  {np.str_('ai4t_real'): 0.3095, np.str_('inthewild_real'): 0.3148, np.str_('replaydf_real'): 0.3327}
+ai4t         mean=0.2632 std=0.0092  {np.str_('ai4t_real'): 0.2565, np.str_('inthewild_real'): 0.2568, np.str_('replaydf_real'): 0.2762}
+
+=== BONA-FIDE-SOURCE LINEAR PROBE (lower = more invariant) ===
+  bona-fide probe SKIPPED (skipped via AUDIOSHIELD_SKIP_BONA_PROBE=1)
+
+wrote repro_e007_A_fresh.json
+
+  inthewild  expected=0.1805 got=0.1805 delta=0.0000 [OK]
+  replaydf   expected=0.3327 got=0.3327 delta=0.0000 [OK]
+  ai4t       expected=0.2565 got=0.2565 delta=0.0000 [OK]
+
+=== e007_B_fresh :: runs\e007_B_fresh\best.pt ===
+  sha256=549451c4e600ab9f...
+  hash OK (matches CHECKPOINTS.md)
+[runtime] torch=2.7.1+cu118 cuda_runtime=11.8
+[runtime] device=cuda gpu_index=0 gpu_name=NVIDIA TITAN RTX capability=7.5 total_mem=24.00GB
+[cross_test] using model config saved in checkpoint
+loaded runs\e007_B_fresh\best.pt (epoch 8)
+dev-EER threshold = 0.6572
+
+=== PER-CORPUS HELD-OUT METRICS ===
+corpus            EER      BAC      ECE  n
+inthewild      0.1167   0.7440   0.1565  31779
+replaydf       0.3276   0.5535   0.4088  52320
+ai4t           0.2629   0.5594   0.2281  3148
+
+=== KWOK BONA-FIDE MATRIX (EER per spoof-set x bona-domain) ===
+bona-fide domains (columns): [np.str_('ai4t_real'), np.str_('inthewild_real'), np.str_('replaydf_real')]
+inthewild    mean=0.1190 std=0.0059  {np.str_('ai4t_real'): 0.1132, np.str_('inthewild_real'): 0.1167, np.str_('replaydf_real'): 0.1271}
+replaydf     mean=0.3286 std=0.0114  {np.str_('ai4t_real'): 0.3152, np.str_('inthewild_real'): 0.343, np.str_('replaydf_real'): 0.3276}
+ai4t         mean=0.2711 std=0.0063  {np.str_('ai4t_real'): 0.2629, np.str_('inthewild_real'): 0.2782, np.str_('replaydf_real'): 0.2723}
+
+=== BONA-FIDE-SOURCE LINEAR PROBE (lower = more invariant) ===
+  bona-fide probe SKIPPED (skipped via AUDIOSHIELD_SKIP_BONA_PROBE=1)
+
+wrote repro_e007_B_fresh.json
+
+  inthewild  expected=0.1167 got=0.1167 delta=0.0000 [OK]
+  replaydf   expected=0.3276 got=0.3276 delta=0.0000 [OK]
+  ai4t       expected=0.2629 got=0.2629 delta=0.0000 [OK]
+
+=== e007_C_xlsr_fresh :: runs\e007_C_xlsr_fresh\best.pt ===
+  sha256=c91f2bfc600a0231...
+  hash OK (matches CHECKPOINTS.md)
+[runtime] torch=2.7.1+cu118 cuda_runtime=11.8
+[runtime] device=cuda gpu_index=0 gpu_name=NVIDIA TITAN RTX capability=7.5 total_mem=24.00GB
+[cross_test] using model config saved in checkpoint
+loaded runs\e007_C_xlsr_fresh\best.pt (epoch 11)
+dev-EER threshold = 0.8882
+
+=== PER-CORPUS HELD-OUT METRICS ===
+corpus            EER      BAC      ECE  n
+inthewild      0.2009   0.5965   0.1452  31779
+replaydf       0.4530   0.5135   0.3287  52320
+ai4t           0.3435   0.5143   0.1867  3148
+
+=== KWOK BONA-FIDE MATRIX (EER per spoof-set x bona-domain) ===
+bona-fide domains (columns): [np.str_('ai4t_real'), np.str_('inthewild_real'), np.str_('replaydf_real')]
+inthewild    mean=0.2302 std=0.0379  {np.str_('ai4t_real'): 0.206, np.str_('inthewild_real'): 0.2009, np.str_('replaydf_real'): 0.2837}
+replaydf     mean=0.3664 std=0.0621  {np.str_('ai4t_real'): 0.3363, np.str_('inthewild_real'): 0.31, np.str_('replaydf_real'): 0.453}
+ai4t         mean=0.3727 std=0.0647  {np.str_('ai4t_real'): 0.3435, np.str_('inthewild_real'): 0.3122, np.str_('replaydf_real'): 0.4624}
+
+=== BONA-FIDE-SOURCE LINEAR PROBE (lower = more invariant) ===
+  bona-fide probe SKIPPED (skipped via AUDIOSHIELD_SKIP_BONA_PROBE=1)
+
+wrote repro_e007_C_xlsr_fresh.json
+
+  inthewild  expected=0.2009 got=0.2009 delta=0.0000 [OK]
+  replaydf   expected=0.4530 got=0.4530 delta=0.0000 [OK]
+  ai4t       expected=0.3435 got=0.3435 delta=0.0000 [OK]
+
+==================================================
+REPRODUCTION GATE: PASS — 2a repairs preserved the eval phenomenon.
+EXIT_CODE:0
