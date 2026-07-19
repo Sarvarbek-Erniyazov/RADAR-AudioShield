@@ -25,9 +25,18 @@ def derive(row) -> dict:
     stem = Path(utt).stem
     # Known placeholder attack labels: constant-filled at manifest creation, not real
     # per-file generators (replaydf: one value vs varied path generators; inthewild:
-    # uniform across wild spoofs). Never let these populate generator_id (v3 U_generator).
-    PLACEHOLDER_ATTACK = {"openvoicev2"}
-    if target == 1 and attack not in ("", "na", "bonafide") and attack not in PLACEHOLDER_ATTACK:
+    # uniform across wild spoofs). Scoped PER CORPUS -- "openvoicev2" is a REAL
+    # generator for diffssd (25,000 rows), not a placeholder there; a global blacklist
+    # silently mislabeled every diffssd openvoicev2 row generator_id="generated_speech"
+    # (masked for the other 9 diffssd generators, where gen=attack below was already
+    # correct so the buggy diffssd path-fallback never ran). Never let a corpus's own
+    # placeholder value populate generator_id (v3 U_generator).
+    PLACEHOLDER_ATTACK_BY_CORPUS = {
+        "inthewild": {"openvoicev2"},
+        "replaydf": {"openvoicev2"},
+    }
+    placeholder_attacks = PLACEHOLDER_ATTACK_BY_CORPUS.get(c, set())
+    if target == 1 and attack not in ("", "na", "bonafide") and attack not in placeholder_attacks:
         gen = attack
     if c == "ai4t":
         src = re.sub(r"_\d{3,}$", "", stem)                      # -lPqD0Kj-gA_000 -> video id
@@ -39,8 +48,22 @@ def derive(row) -> dict:
             lang = "en"
         elif "ljspeech" in path.lower():
             spk, src, lang = "ljspeech", "ljspeech", "en"
-        if target == 1 and gen == NA and len(p) > 2:
-            gen = p[2]                                            # diffssd/<generator>/...
+        if target == 1 and gen == NA:
+            try:
+                gen = p[p.index("generated_speech") + 1]          # generated_speech/<generator>/...
+            except (ValueError, IndexError):
+                pass
+        if gen == "openvoicev2":
+            # generated_speech/openvoicev2/speaker_NNN/sentence_K_en-XX.wav -- speaker
+            # and accent are only derivable from the path, never from the attack label.
+            try:
+                i = p.index("openvoicev2")
+                spk = p[i + 1]
+            except (ValueError, IndexError):
+                pass
+            m = re.search(r"(en-[a-z]+)$", stem)
+            if m:
+                lang = m.group(1)
     elif c == "replaydf":
         try:
             i = p.index("wav")

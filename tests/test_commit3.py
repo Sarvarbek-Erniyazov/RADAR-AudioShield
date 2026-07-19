@@ -64,3 +64,34 @@ def test_inthewild_placeholder_attack_yields_na_generator():
                       path="datasets/02_In-the-Wild/release_in_the_wild/1.wav",
                       target="1", attack="openvoicev2"))
     assert got["generator_id"] == "NA", got["generator_id"]     # honest missing, not fiction
+
+
+def test_diffssd_flat_generator_from_path_fallback():
+    """Bug fix: the diffssd path-fallback (used when attack doesn't already supply a
+    generator) must index BY NAME (generated_speech + 1), not a hardcoded p[2] -- p[2]
+    was literally the "generated_speech" directory component itself."""
+    got = derive(dict(corpus="diffssd", utt_id="diffssd/generated_speech/gradtts/sentence_0.wav",
+                      path="datasets/03_DiffSSD/generated_speech/gradtts/sentence_0.wav",
+                      target="1", attack="na"))
+    assert got["generator_id"] == "gradtts", got["generator_id"]
+
+
+def test_diffssd_openvoicev2_speaker_and_accent_from_path():
+    got = derive(dict(
+        corpus="diffssd",
+        utt_id="diffssd/generated_speech/openvoicev2/speaker_100/sentence_0_en-au.wav",
+        path="datasets/03_DiffSSD/generated_speech/openvoicev2/speaker_100/sentence_0_en-au.wav",
+        target="1", attack="openvoicev2",
+    ))
+    assert got["generator_id"] == "openvoicev2", got["generator_id"]
+    assert got["speaker_id"] == "speaker_100", got["speaker_id"]
+    assert got["language"] == "en-au", got["language"]
+
+
+def test_diffssd_manifest_never_labels_generated_speech_as_generator():
+    """Regenerated-manifest invariant, not just a synthetic-row check: the
+    global (not per-corpus) PLACEHOLDER_ATTACK bug produced
+    generator_id="generated_speech" for every diffssd openvoicev2 row (25,000 of
+    them) in the pre-fix manifest."""
+    df = pd.read_csv("manifests/v2/diffssd.csv", dtype=str, keep_default_na=False)
+    assert not (df["generator_id"] == "generated_speech").any()
