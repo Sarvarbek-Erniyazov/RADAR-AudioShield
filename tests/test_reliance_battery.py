@@ -2,6 +2,7 @@
 real embedding cache or checkpoints (those live on the collaborator machine)."""
 from __future__ import annotations
 
+import json
 import sys
 import warnings
 from pathlib import Path
@@ -14,17 +15,23 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from run_reliance_battery import (  # noqa: E402
     LAYER_LOGITS_KEY,
+    _describe_pooling_mismatch,
     _find_layer_logits_key,
+    _not_estimable,
+    _removal_control_without_task_direction,
     _uniform_band_weights,
     groups_from_column,
     join_cache_to_manifest,
     load_corpus_embeddings,
     load_task_direction,
+    main,
     pool_band_embeddings,
     ranks_for_n_levels,
+    resolve_w_metrics,
     run_battery,
     select_battery_rows,
     strip_cache_prefix,
+    summarize_prereg_candidate,
 )
 
 
@@ -608,4 +615,287 @@ def test_run_battery_fixed_mode_leaves_alignment_none_semantics_unaffected(band_
         for fold in estimator_result["fold_results"]:
             per_ck = fold["effect"]["per_checkpoint"]["e007_A_fresh"]
             assert per_ck["alignment"] is not None
-            assert np.isfinite(per_ck["alignment"])
+
+
+# ---------------------------------------------------------------------------
+# --w-metrics: dimension-mismatch detection in load_task_direction
+# ---------------------------------------------------------------------------
+
+
+def test_describe_pooling_mismatch_reads_real_proj_shapes_when_present():
+    state = {"proj.0.weight": torch.randn(256, 2048), "proj.4.weight": torch.randn(256, 256)}
+    reason = _describe_pooling_mismatch(state, "binary.fc.weight", 256)
+    assert "(256, 2048)" in reason
+    assert "(256, 256)" in reason
+    assert "binary.fc.weight" in reason
+
+
+def test_describe_pooling_mismatch_falls_back_when_proj_keys_absent():
+    reason = _describe_pooling_mismatch({}, "binary.fc.weight", 256)
+    assert "2-layer proj MLP" in reason
+    assert "binary.fc.weight" in reason
+
+
+def test_load_task_direction_auto_mode_flags_dim_mismatch_without_raising(tmp_path):
+    ckpt = tmp_path / "runs_e007_A_fresh_best.pt"
+    _write_checkpoint(ckpt, layer_center=9)  # w is 32-d, see _write_checkpoint
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        out = load_task_direction(ckpt, requested_layer=9, w_metrics_mode="auto", embedding_dim=1024)
+    assert out["w_dim"] == 32
+    assert out["w_dim_mismatch"] is True
+    assert "32" in out["w_dim_mismatch_reason"] and "no linear pullback" in out["w_dim_mismatch_reason"]
+    assert any("no linear pullback" in str(w.message) for w in caught)
+
+
+def test_load_task_direction_auto_mode_no_mismatch_when_dims_match(tmp_path):
+    ckpt = tmp_path / "runs_e007_A_fresh_best.pt"
+    _write_checkpoint(ckpt, layer_center=9)
+    out = load_task_direction(ckpt, requested_layer=9, w_metrics_mode="auto", embedding_dim=32)
+    assert out["w_dim_mismatch"] is False
+    assert out["w_dim_mismatch_reason"] is None
+
+
+def test_load_task_direction_on_mode_raises_on_dim_mismatch(tmp_path):
+    ckpt = tmp_path / "runs_e007_A_fresh_best.pt"
+    _write_checkpoint(ckpt, layer_center=9)
+    with pytest.raises(RuntimeError, match="w-metrics on"):
+        load_task_direction(ckpt, requested_layer=9, w_metrics_mode="on", embedding_dim=1024)
+
+
+def test_load_task_direction_off_mode_skips_w_entirely(tmp_path):
+    ckpt = tmp_path / "bad.pt"
+    torch.save(dict(model={"unrelated.weight": torch.randn(3, 3)}, cfg={}), ckpt)  # no classifier key at all
+    out = load_task_direction(ckpt, requested_layer=9, w_metrics_mode="off")
+    assert out["w"] is None and out["b"] is None
+    assert out["w_dim"] is None and out["w_dim_mismatch"] is None
+    assert out["w_layer_mismatch"] is None
+
+
+# ---------------------------------------------------------------------------
+# resolve_w_metrics
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_w_metrics_off_mode_disabled_regardless_of_checkpoints():
+    result = resolve_w_metrics({"e007_A_fresh": dict(w_dim_mismatch=False, w_dim=256)}, "off", embedding_dim=1024)
+    assert result["enabled"] is False
+    assert result["w_dim"] is None
+
+
+def test_resolve_w_metrics_no_checkpoints_disabled():
+    result = resolve_w_metrics({}, "auto", embedding_dim=1024)
+    assert result["enabled"] is False
+
+
+def test_resolve_w_metrics_any_mismatch_disables_whole_run():
+    checkpoints = {
+        "e007_A_fresh": dict(w_dim_mismatch=False, w_dim=1024, w_dim_mismatch_reason=None),
+        "e007_B_fresh": dict(w_dim_mismatch=True, w_dim=256, w_dim_mismatch_reason="B mismatched"),
+    }
+    result = resolve_w_metrics(checkpoints, "auto", embedding_dim=1024)
+    assert result["enabled"] is False
+    assert result["reason"] == "B mismatched"
+    assert result["w_dim"] == 256
+
+
+def test_resolve_w_metrics_all_matched_enabled():
+    checkpoints = {"e007_A_fresh": dict(w_dim_mismatch=False, w_dim=1024, w_dim_mismatch_reason=None)}
+    result = resolve_w_metrics(checkpoints, "auto", embedding_dim=1024)
+    assert result["enabled"] is True
+    assert result["w_dim"] == 1024
+
+
+# ---------------------------------------------------------------------------
+# _removal_control_without_task_direction: matches removal_control_report's
+# w-independent fields exactly when the effect_fn genuinely ignores w
+# ---------------------------------------------------------------------------
+
+
+def test_removal_control_without_task_direction_matches_full_report_when_effect_fn_ignores_w():
+    from audioshield.reliance.metrics import removal_control_report
+
+    rng = np.random.default_rng(7)
+    d, k = 10, 2
+    Z = rng.standard_normal((30, d))
+    Q, _ = np.linalg.qr(rng.standard_normal((d, d)))
+    U = Q[:, :k]
+    w = rng.standard_normal(d)
+
+    def effect_with_w(Z_, w_, U_):
+        return float(np.mean(Z_ @ U_))
+
+    def effect_without_w(Z_, U_):
+        return float(np.mean(Z_ @ U_))
+
+    full = removal_control_report(Z, w, U, effect_fn=effect_with_w, n_random=15, seed=13)
+    partial = _removal_control_without_task_direction(Z, U, effect_fn=effect_without_w, n_random=15, seed=13)
+
+    assert partial["true_effect"] == pytest.approx(full["true_effect"])
+    assert partial["random_effects"] == pytest.approx(full["random_effects"])
+    assert partial["random_mean"] == pytest.approx(full["random_mean"])
+    assert partial["random_std"] == pytest.approx(full["random_std"])
+    assert partial["exceeds_random"] == full["exceeds_random"]
+    assert "task_direction_effect" not in partial  # caller's responsibility to add
+
+
+# ---------------------------------------------------------------------------
+# run_battery / summarize_prereg_candidate with w-metrics disabled
+# ---------------------------------------------------------------------------
+
+
+def test_run_battery_w_metrics_disabled_yields_not_estimable_and_completes(synthetic_battery_data):
+    d = synthetic_battery_data
+    spec = dict(name="w_disabled_test", corpus="diffssd", factor="generator_id", grouping="source_id")
+    reason = "test reason: dims mismatch"
+
+    result = run_battery(
+        spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
+        ranks=[1, 2], n_boot=10, seed=13, w_metrics_enabled=False, w_metrics_reason=reason,
+    )
+
+    assert result["headline_bootstrap"]["metric"] == "factor_separation_score"
+    assert result["rank_sensitivity"]["metric"] == "factor_separation_score"
+    for estimator_result in result["estimators"].values():
+        for fold in estimator_result["fold_results"]:
+            effect = fold["effect"]
+            per_ck = effect["per_checkpoint"]["e007_A_fresh"]
+            for key in ("alignment", "r_var", "r_var_class_conditional",
+                        "prediction_change", "prediction_change_control"):
+                assert per_ck[key] == _not_estimable(reason), f"{key} not marked not_estimable"
+            assert per_ck["w_layer_mismatch"] is None
+            # factor-only metrics still run unchanged
+            assert "decodability_drop" in effect["leace"]
+            assert "decodability_drop" in effect["inlp"]
+            prc = effect["projection_removal_control"]
+            assert np.isfinite(prc["true_effect"])
+            assert all(np.isfinite(v) for v in prc["random_effects"])
+            assert prc["task_direction_effect"] == _not_estimable(reason)
+
+
+def test_run_battery_w_metrics_enabled_default_uses_r_var_headline(synthetic_battery_data):
+    d = synthetic_battery_data
+    spec = dict(name="w_enabled_test", corpus="diffssd", factor="generator_id", grouping="source_id")
+    result = run_battery(
+        spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
+        ranks=[1, 2], n_boot=10, seed=13,  # w_metrics_enabled defaults to True
+    )
+    assert result["headline_bootstrap"]["metric"] == "r_var"
+    assert result["rank_sensitivity"]["metric"] == "r_var"
+
+
+def test_summarize_prereg_candidate_handles_disabled_w_metrics(synthetic_battery_data):
+    d = synthetic_battery_data
+    spec = dict(name="w_disabled_summary_test", corpus="diffssd", factor="generator_id", grouping="source_id")
+    result = run_battery(
+        spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
+        ranks=[1, 2], n_boot=10, seed=13, w_metrics_enabled=False, w_metrics_reason="dims mismatch",
+    )
+    summary = summarize_prereg_candidate(result)
+    assert summary["headline_metric"] == "factor_separation_score"
+    assert isinstance(summary["estimators_agree_sign"], bool)
+    assert isinstance(summary["cis_overlap"], bool)
+
+
+# ---------------------------------------------------------------------------
+# main() end-to-end: a genuine dimension mismatch must not crash the run
+# ---------------------------------------------------------------------------
+
+
+def _write_synthetic_main_inputs(tmp_path, rng, n=120, n_layers=25, cache_dim=64, w_dim=16):
+    manifest_dir = tmp_path / "manifests"
+    cache_root = tmp_path / "cache"
+    ckpt_dir = tmp_path / "ckpts"
+    manifest_dir.mkdir()
+    (cache_root / "03_DiffSSD").mkdir(parents=True)
+    ckpt_dir.mkdir()
+
+    generators = rng.choice(["gradtts", "xttsv2", "playht", "yourtts"], size=n)
+    rows = []
+    for i in range(n):
+        rows.append(dict(
+            utt_id=f"diffssd/generated_speech/{generators[i]}/s{i}.wav",
+            path=f"datasets/03_DiffSSD/generated_speech/{generators[i]}/s{i}.wav",
+            target=1, corpus="diffssd", split="train", attack=generators[i], bona_fide_source="na",
+            source_id=f"src{i % 20}", speaker_id="NA", generator_id=generators[i],
+            channel_id="NA", language="NA", platform_id="NA",
+        ))
+    pd.DataFrame(rows).to_csv(manifest_dir / "diffssd.csv", index=False)
+
+    emb = rng.standard_normal((n, n_layers, cache_dim)).astype(np.float16)
+    paths = np.array([f"generated_speech/{generators[i]}/s{i}.wav" for i in range(n)])
+    np.savez(cache_root / "03_DiffSSD" / "shard_0000.npz", emb=emb, paths=paths)
+
+    for run in ("e007_A_fresh", "e007_B_fresh", "e007_C_xlsr_fresh"):
+        sd = dict(
+            model={"binary.fc.weight": torch.randn(1, w_dim), "binary.fc.bias": torch.randn(1)},
+            cfg={"model": {"layer_weight_init_center": 10, "layer_weight_init_band": [8, 11]}},
+        )
+        torch.save(sd, ckpt_dir / f"runs_{run}_best.pt")
+
+    return manifest_dir, cache_root, ckpt_dir
+
+
+def test_main_auto_mode_completes_with_not_estimable_on_dim_mismatch(tmp_path):
+    """Regression guard for the crash this task fixes: a genuine w/embedding
+    dimension mismatch must complete the run (exit 0), not die inside the
+    grouped bootstrap's w-dependent headline metric."""
+    rng = np.random.default_rng(21)
+    manifest_dir, cache_root, ckpt_dir = _write_synthetic_main_inputs(tmp_path, rng, cache_dim=64, w_dim=16)
+    out_path = tmp_path / "out.json"
+
+    argv = [
+        "--cache-root", str(cache_root), "--manifest-dir", str(manifest_dir), "--layer", "9",
+        "--out", str(out_path), "--corpus", "diffssd", "--factor", "generator_id",
+        "--ranks", "1", "2", "--n-boot", "10", "--seed", "13", "--ckpt-dir", str(ckpt_dir),
+        "--w-metrics", "auto",
+    ]
+    main(argv)  # must not raise
+
+    output = json.loads(out_path.read_text())
+    assert output["w_metrics"]["enabled"] is False
+    assert output["w_metrics"]["w_dim"] == 16
+    assert output["w_metrics"]["embedding_dim"] == 64
+    battery = output["batteries"][0]
+    fold0 = battery["estimators"]["lda"]["fold_results"][0]
+    per_ck = fold0["effect"]["per_checkpoint"]["e007_A_fresh"]
+    assert per_ck["alignment"]["status"] == "not_estimable"
+    assert battery["headline_bootstrap"]["metric"] == "factor_separation_score"
+
+
+def test_main_on_mode_raises_on_dim_mismatch(tmp_path):
+    rng = np.random.default_rng(22)
+    manifest_dir, cache_root, ckpt_dir = _write_synthetic_main_inputs(tmp_path, rng, cache_dim=64, w_dim=16)
+    out_path = tmp_path / "out.json"
+
+    argv = [
+        "--cache-root", str(cache_root), "--manifest-dir", str(manifest_dir), "--layer", "9",
+        "--out", str(out_path), "--corpus", "diffssd", "--factor", "generator_id",
+        "--ranks", "1", "2", "--n-boot", "10", "--seed", "13", "--ckpt-dir", str(ckpt_dir),
+        "--w-metrics", "on",
+    ]
+    with pytest.raises(RuntimeError, match="w-metrics on"):
+        main(argv)
+
+
+def test_main_matched_dims_regression_guard(tmp_path):
+    """A matched-dims synthetic case still computes w-metrics normally."""
+    rng = np.random.default_rng(23)
+    manifest_dir, cache_root, ckpt_dir = _write_synthetic_main_inputs(tmp_path, rng, cache_dim=32, w_dim=32)
+    out_path = tmp_path / "out.json"
+
+    argv = [
+        "--cache-root", str(cache_root), "--manifest-dir", str(manifest_dir), "--layer", "9",
+        "--out", str(out_path), "--corpus", "diffssd", "--factor", "generator_id",
+        "--ranks", "1", "2", "--n-boot", "10", "--seed", "13", "--ckpt-dir", str(ckpt_dir),
+        "--w-metrics", "auto",
+    ]
+    main(argv)
+
+    output = json.loads(out_path.read_text())
+    assert output["w_metrics"]["enabled"] is True
+    battery = output["batteries"][0]
+    fold0 = battery["estimators"]["lda"]["fold_results"][0]
+    per_ck = fold0["effect"]["per_checkpoint"]["e007_A_fresh"]
+    assert per_ck["alignment"] is not None and np.isfinite(per_ck["alignment"])
+    assert battery["headline_bootstrap"]["metric"] == "r_var"
