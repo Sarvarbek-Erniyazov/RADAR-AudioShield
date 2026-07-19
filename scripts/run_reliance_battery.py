@@ -39,9 +39,39 @@ space.
   embedding regardless of --layer-mode, so those stay comparable across
   checkpoints and across --layer-mode runs.
 
+--w-metrics {auto, on, off} (default auto): --layer-mode above assumes w and
+the embedding differ only by WHICH backbone layer w was learned over. For
+these cached embeddings there is a second, more fundamental mismatch: w is
+AudioShieldX's classifier weight over embed()'s output (AttentiveStatsPooling
+over the sequence, then a 2-layer proj MLP with a GELU nonlinearity in
+between), not over a raw backbone hidden-state layer at all -- the cache is
+1024-d (one backbone layer, pre-pooling), w is 256-d (post-pooling,
+post-proj). No linear map recovers one from the other, so alignment, r_var,
+r_var_class_conditional, prediction_change, and the task-direction positive
+control inside removal_control_report (see metrics.py -- verified from
+source, not the names: r_var and r_var_class_conditional both take w as a
+required argument despite "r_var" not sounding like it should) cannot be
+estimated against this cache at all, regardless of --layer-mode.
+  - auto: try to load w; if its dimensionality doesn't match the cache's
+    embedding dimensionality, DISABLE every w-dependent metric for the whole
+    run, print the reason once, and continue -- never crash on this.
+  - on: the same dimension check, but a mismatch is a hard failure (for runs
+    where the caller has separately verified the spaces match, e.g. against
+    scripts/extract_model_embeddings.py's model-space cache).
+  - off: skip loading w entirely.
+  Disabled w-dependent metrics appear in the JSON as
+  {"value": null, "status": "not_estimable", "reason": "..."}, never silently
+  omitted. Metrics that genuinely do not take w (project_out-based
+  decodability drop, LEACE, INLP, the equal-norm random-subspace controls)
+  still run unchanged. The grouped-bootstrap headline metric and the
+  rank-sensitivity curve fall back to a non-w metric
+  (factor_separation_score) when w-metrics are disabled; which metric was
+  used is recorded as "metric" in their JSON blocks.
+
 Usage:
     python scripts/run_reliance_battery.py --layer 9
     python scripts/run_reliance_battery.py --layer 9 --layer-mode checkpoint-band
+    python scripts/run_reliance_battery.py --layer 9 --w-metrics off
 
 Do NOT run against the real embedding cache from this repo checkout -- it
 lives on the collaborator machine (see --cache-root's default). This script
@@ -76,6 +106,7 @@ from audioshield.reliance.metrics import (
     project_out,
     r_var,
     r_var_class_conditional,
+    random_subspace,
     removal_control_report,
 )
 from audioshield.reliance.subspaces import crossfitted_probe_subspace, lda_subspace
@@ -325,6 +356,46 @@ def _decodability(Z_fit, f_fit, Z_eval, f_eval) -> float:
     return float(balanced_accuracy_score(f_eval, clf.predict(Z_eval)))
 
 
+def _not_estimable(reason: str) -> dict:
+    """Sentinel for a metric that requires w when --w-metrics has disabled w
+    -- never silently omitted, always this exact shape."""
+    return {"value": None, "status": "not_estimable", "reason": reason}
+
+
+def _removal_control_without_task_direction(
+    Z: np.ndarray, U_true: np.ndarray, effect_fn: Callable[[np.ndarray, np.ndarray], float],
+    n_random: int = 20, seed: int = 13,
+) -> dict:
+    """removal_control_report's true_effect/random_effects/random_mean/
+    random_std/exceeds_random computation, WITHOUT requiring a task-direction
+    w -- used when w-metrics are disabled but the underlying effect_fn is
+    itself factor-only (e.g. a decodability-drop-based removal effect).
+    metrics.removal_control_report cannot be called at all in that case: it
+    unconditionally builds task_direction_subspace(w, ...) even when its own
+    effect_fn ignores w. task_direction_effect is therefore the caller's
+    responsibility to mark not_estimable -- computing it structurally
+    requires a real w.
+
+    Args:
+        effect_fn: `(Z, U) -> float` -- note this is metrics.removal_control_report's
+            `effect_fn` with its `w` argument already dropped.
+    """
+    k = U_true.shape[1]
+    d = Z.shape[1]
+    true_effect = float(effect_fn(Z, U_true))
+    rng = np.random.default_rng(seed)
+    random_effects = [
+        float(effect_fn(Z, random_subspace(d, k, seed=int(rng.integers(1_000_000_000)))))
+        for _ in range(n_random)
+    ]
+    random_mean = float(np.mean(random_effects)) if random_effects else float("nan")
+    random_std = float(np.std(random_effects)) if random_effects else float("nan")
+    return dict(
+        true_effect=true_effect, random_effects=random_effects, random_mean=random_mean, random_std=random_std,
+        exceeds_random=(bool(true_effect > random_mean + 2 * random_std) if random_effects else None),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Checkpoint / task-direction loading
 # ---------------------------------------------------------------------------
@@ -356,13 +427,41 @@ def _uniform_band_weights(band: tuple, num_layers: int) -> np.ndarray:
     return w
 
 
+def _describe_pooling_mismatch(state: dict, w_key: str, w_dim: int) -> str:
+    """Build a reason string naming the real shapes found in THIS checkpoint's
+    state dict where available (never a hardcoded/guessed description)."""
+    proj0, proj4 = state.get("proj.0.weight"), state.get("proj.4.weight")
+    if proj0 is not None and proj4 is not None:
+        pooling = (f"AttentiveStatsPooling over the sequence, then proj.0 {tuple(proj0.shape)} -> "
+                   f"GELU -> proj.4 {tuple(proj4.shape)}")
+    else:
+        pooling = "AttentiveStatsPooling over the sequence, then a 2-layer proj MLP with a GELU in between"
+    return (
+        f"w ({w_key}) is {w_dim}-d but the embedding cache is a single raw backbone hidden-state "
+        f"layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier "
+        f"weight over the model's pooled+projected embedding ({pooling}, a nonlinear transform)"
+    )
+
+
 def load_task_direction(
-    ckpt_path: Path, requested_layer: int, layer_mode: str = "fixed", num_cache_layers: int | None = None
+    ckpt_path: Path, requested_layer: int, layer_mode: str = "fixed", num_cache_layers: int | None = None,
+    w_metrics_mode: str = "auto", embedding_dim: int | None = None,
 ) -> dict:
     """Load a checkpoint, extract its final linear classifier weight (the
     task direction w) and bias, and resolve how its embedding should be
     pooled for the alignment metric specifically (see module docstring for
-    --layer-mode).
+    --layer-mode and --w-metrics).
+
+    w_metrics_mode="off": skip loading w entirely (w=None, w_dim=None); the
+    checkpoint's layer-weighting metadata is still loaded (cheap, and
+    independent of whether w-dependent metrics are wanted).
+
+    w_metrics_mode="auto"/"on": load w and its dimensionality (w_dim). If
+    `embedding_dim` is given and doesn't match, w_dim_mismatch=true and
+    w_dim_mismatch_reason names the real shapes found in this checkpoint's
+    state dict (never a guessed description). "on" raises on a mismatch;
+    "auto" warns and returns the mismatch flag for the caller (main()) to
+    decide whether to disable w-metrics for the whole run.
 
     layer_mode="fixed" (unchanged prior behaviour): compares the checkpoint's
     own layer-weighting center against `requested_layer`; any difference
@@ -385,6 +484,18 @@ def load_task_direction(
     sd = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     state = sd.get("model", sd) if isinstance(sd, dict) else sd
 
+    cfg = sd.get("cfg", {}) if isinstance(sd, dict) else {}
+    model_cfg = cfg.get("model", {}) if isinstance(cfg, dict) else {}
+    ckpt_layer_center = model_cfg.get("layer_weight_init_center")
+    ckpt_layer_band = model_cfg.get("layer_weight_init_band")
+
+    if w_metrics_mode == "off":
+        return dict(
+            w=None, b=None, w_dim=None, w_dim_mismatch=None, w_dim_mismatch_reason=None,
+            ckpt_layer_center=ckpt_layer_center, ckpt_layer_band=ckpt_layer_band,
+            layer_pooling="fixed_layer", band_weights=None, w_layer_mismatch=None,
+        )
+
     w_key = _find_key(state, CANDIDATE_W_KEYS)
     if w_key is None:
         raise RuntimeError(
@@ -392,14 +503,19 @@ def load_task_direction(
             f"(tried {CANDIDATE_W_KEYS}) -- refusing to guess"
         )
     w = state[w_key].squeeze().float().cpu().numpy()
+    w_dim = int(w.shape[0])
 
     b_key = _find_key(state, CANDIDATE_B_KEYS)
     b = float(state[b_key].squeeze().float().cpu().item()) if b_key is not None else 0.0
 
-    cfg = sd.get("cfg", {}) if isinstance(sd, dict) else {}
-    model_cfg = cfg.get("model", {}) if isinstance(cfg, dict) else {}
-    ckpt_layer_center = model_cfg.get("layer_weight_init_center")
-    ckpt_layer_band = model_cfg.get("layer_weight_init_band")
+    w_dim_mismatch = embedding_dim is not None and w_dim != embedding_dim
+    w_dim_mismatch_reason = None
+    if w_dim_mismatch:
+        w_dim_mismatch_reason = f"{ckpt_path.name}: {_describe_pooling_mismatch(state, w_key, w_dim)}"
+        if w_metrics_mode == "on":
+            raise RuntimeError(f"--w-metrics on: {w_dim_mismatch_reason}")
+        warnings.warn(w_dim_mismatch_reason, stacklevel=2)
+        print(f"[WARN] {w_dim_mismatch_reason}", file=sys.stderr)
 
     if layer_mode == "fixed":
         mismatch = ckpt_layer_center is None or ckpt_layer_center != requested_layer
@@ -417,7 +533,8 @@ def load_task_direction(
                 file=sys.stderr,
             )
         return dict(
-            w=w, b=b, ckpt_layer_center=ckpt_layer_center, ckpt_layer_band=ckpt_layer_band,
+            w=w, b=b, w_dim=w_dim, w_dim_mismatch=w_dim_mismatch, w_dim_mismatch_reason=w_dim_mismatch_reason,
+            ckpt_layer_center=ckpt_layer_center, ckpt_layer_band=ckpt_layer_band,
             layer_pooling="fixed_layer", band_weights=None, w_layer_mismatch=bool(mismatch),
         )
 
@@ -435,7 +552,8 @@ def load_task_direction(
             )
         weights = torch.softmax(logits, dim=0).numpy()
         return dict(
-            w=w, b=b, ckpt_layer_center=ckpt_layer_center, ckpt_layer_band=ckpt_layer_band,
+            w=w, b=b, w_dim=w_dim, w_dim_mismatch=w_dim_mismatch, w_dim_mismatch_reason=w_dim_mismatch_reason,
+            ckpt_layer_center=ckpt_layer_center, ckpt_layer_band=ckpt_layer_band,
             layer_pooling="learned_softmax", band_weights=weights, w_layer_mismatch=False,
         )
 
@@ -459,14 +577,39 @@ def load_task_direction(
     )
     weights = _uniform_band_weights(ckpt_layer_band, num_cache_layers)
     return dict(
-        w=w, b=b, ckpt_layer_center=ckpt_layer_center, ckpt_layer_band=ckpt_layer_band,
+        w=w, b=b, w_dim=w_dim, w_dim_mismatch=w_dim_mismatch, w_dim_mismatch_reason=w_dim_mismatch_reason,
+        ckpt_layer_center=ckpt_layer_center, ckpt_layer_band=ckpt_layer_band,
         layer_pooling="uniform_band_fallback", band_weights=weights, w_layer_mismatch=True,
     )
+
+
+def resolve_w_metrics(checkpoints: dict[str, dict], w_metrics_mode: str, embedding_dim: int) -> dict:
+    """Aggregate per-checkpoint w_dim_mismatch flags into a single run-wide
+    decision (module docstring: --w-metrics). A mismatch on ANY loaded
+    checkpoint disables w-dependent metrics for the WHOLE run, not just that
+    checkpoint -- a report mixing w-enabled and w-disabled checkpoints would
+    be more confusing than informative. "on" mode never reaches here with a
+    mismatch (load_task_direction already raised)."""
+    if w_metrics_mode == "off":
+        return dict(enabled=False, reason="--w-metrics off: w loading skipped entirely",
+                     w_dim=None, embedding_dim=embedding_dim)
+    if not checkpoints:
+        return dict(enabled=False, reason="no checkpoints loaded -- nothing to check w against",
+                     w_dim=None, embedding_dim=embedding_dim)
+    mismatched = {run: ck for run, ck in checkpoints.items() if ck.get("w_dim_mismatch")}
+    if mismatched:
+        sample = next(iter(mismatched.values()))
+        return dict(enabled=False, reason=sample["w_dim_mismatch_reason"],
+                     w_dim=sample["w_dim"], embedding_dim=embedding_dim)
+    any_ck = next(iter(checkpoints.values()))
+    return dict(enabled=True, reason="w and embedding dimensionality match",
+                 w_dim=any_ck["w_dim"], embedding_dim=embedding_dim)
 
 
 def load_all_checkpoints(
     ckpt_dir: Path, runs: tuple[str, ...], requested_layer: int,
     layer_mode: str = "fixed", num_cache_layers: int | None = None,
+    w_metrics_mode: str = "auto", embedding_dim: int | None = None,
 ) -> dict[str, dict]:
     out = {}
     for run in runs:
@@ -475,7 +618,8 @@ def load_all_checkpoints(
             print(f"[WARN] {ckpt_path}: not found -- skipping this checkpoint", file=sys.stderr)
             continue
         out[run] = load_task_direction(ckpt_path, requested_layer, layer_mode=layer_mode,
-                                        num_cache_layers=num_cache_layers)
+                                        num_cache_layers=num_cache_layers, w_metrics_mode=w_metrics_mode,
+                                        embedding_dim=embedding_dim)
     return out
 
 
@@ -495,37 +639,63 @@ def _make_fit_subspace(estimator: str, seed: int) -> Callable:
     return fit_subspace
 
 
-def _make_effect_fn(checkpoints: dict[str, dict], seed: int, n_random: int, layer_mode: str = "fixed") -> Callable:
+def _make_effect_fn(
+    checkpoints: dict[str, dict], seed: int, n_random: int, layer_mode: str = "fixed",
+    w_metrics_enabled: bool = True, w_metrics_reason: str = "",
+) -> Callable:
     def effect_fn(Z_eff, factor_eff, y_eff, U):
         out: dict = {"per_checkpoint": {}}
-        Sigma = np.atleast_2d(np.cov(Z_eff, rowvar=False)) if len(Z_eff) > 1 else np.eye(Z_eff.shape[1])
+        Sigma = np.atleast_2d(np.cov(Z_eff, rowvar=False)) if w_metrics_enabled and len(Z_eff) > 1 else None
 
         for run, ck in checkpoints.items():
-            w, b = ck["w"], ck["b"]
-            pc = prediction_change(Z_eff, w, U, b=b)
-            pc_control = removal_control_report(
-                Z_eff, w, U,
-                effect_fn=lambda Z, w_, U_, _b=b: prediction_change(Z, w_, U_, b=_b)["mean_abs_logit_change"],
-                n_random=n_random, seed=seed,
-            )
-            out["per_checkpoint"][run] = dict(
-                # In checkpoint-band mode, U here is fit on the shared --layer
-                # embedding while w lives in the checkpoint's own pooled
-                # space -- comparing them would be exactly the mismatched-
-                # representation bug this mode exists to fix, so alignment is
-                # left for _recompute_band_alignment's post-processing pass.
-                alignment=(alignment(w, U) if layer_mode == "fixed" else None),
-                r_var=r_var(w, U, Sigma),
-                r_var_class_conditional=r_var_class_conditional(w, U, Z_eff, y_eff),
-                prediction_change=pc,
-                prediction_change_control=pc_control,
-                w_layer_mismatch=ck["w_layer_mismatch"],
-                ckpt_layer_center=ck["ckpt_layer_center"],
-                layer_pooling=ck.get("layer_pooling", "fixed_layer"),
-            )
+            if w_metrics_enabled:
+                w, b = ck["w"], ck["b"]
+                pc = prediction_change(Z_eff, w, U, b=b)
+                pc_control = removal_control_report(
+                    Z_eff, w, U,
+                    effect_fn=lambda Z, w_, U_, _b=b: prediction_change(Z, w_, U_, b=_b)["mean_abs_logit_change"],
+                    n_random=n_random, seed=seed,
+                )
+                out["per_checkpoint"][run] = dict(
+                    # In checkpoint-band mode, U here is fit on the shared --layer
+                    # embedding while w lives in the checkpoint's own pooled
+                    # space -- comparing them would be exactly the mismatched-
+                    # representation bug this mode exists to fix, so alignment is
+                    # left for _recompute_band_alignment's post-processing pass.
+                    alignment=(alignment(w, U) if layer_mode == "fixed" else None),
+                    r_var=r_var(w, U, Sigma if Sigma is not None else np.eye(Z_eff.shape[1])),
+                    r_var_class_conditional=r_var_class_conditional(w, U, Z_eff, y_eff),
+                    prediction_change=pc,
+                    prediction_change_control=pc_control,
+                    w_layer_mismatch=ck["w_layer_mismatch"],
+                    ckpt_layer_center=ck["ckpt_layer_center"],
+                    layer_pooling=ck.get("layer_pooling", "fixed_layer"),
+                )
+            else:
+                # w-dependent metrics require w and the embedding to live in
+                # the same space -- --w-metrics has determined they do not
+                # (see module docstring). Never silently omitted: every
+                # affected metric gets the explicit not_estimable sentinel.
+                out["per_checkpoint"][run] = dict(
+                    alignment=_not_estimable(w_metrics_reason),
+                    r_var=_not_estimable(w_metrics_reason),
+                    r_var_class_conditional=_not_estimable(w_metrics_reason),
+                    prediction_change=_not_estimable(w_metrics_reason),
+                    prediction_change_control=_not_estimable(w_metrics_reason),
+                    w_layer_mismatch=None,
+                    ckpt_layer_center=ck.get("ckpt_layer_center"),
+                    layer_pooling=ck.get("layer_pooling", "fixed_layer"),
+                )
+
+        # factor-only, checkpoint-independent -- always computed regardless of
+        # --w-metrics (used as the non-w headline/rank-sensitivity metric when
+        # w-metrics are disabled; see run_battery).
+        out["factor_separation_score"] = factor_separation_score(Z_eff, factor_eff, y_eff, U)
 
         # checkpoint-independent: LEACE / INLP erasure quality, each fit and
         # evaluated on disjoint halves of this effect fold (never in-sample).
+        # Neither fit_leace nor fit_inlp takes w -- these run unchanged
+        # regardless of --w-metrics.
         n = len(y_eff)
         rng = np.random.default_rng(seed)
         perm = rng.permutation(n)
@@ -558,17 +728,26 @@ def _make_effect_fn(checkpoints: dict[str, dict], seed: int, n_random: int, laye
             decodability_drop=acc_before - acc_after_inlp,
         )
 
-        def _projection_removal_decodability_drop(Z, w_unused, U_):
+        def _projection_removal_decodability_drop(Z, U_):
             Zr = project_out(Z, U_)
             b4 = _decodability(Z[fit_idx], factor_eff[fit_idx], Z[eval_idx], factor_eff[eval_idx])
             af = _decodability(Zr[fit_idx], factor_eff[fit_idx], Zr[eval_idx], factor_eff[eval_idx])
             return b4 - af
 
-        any_w = next(iter(checkpoints.values()))["w"] if checkpoints else np.zeros(Z_eff.shape[1])
-        out["projection_removal_control"] = removal_control_report(
-            Z_eff, any_w, U, effect_fn=_projection_removal_decodability_drop,
-            n_random=n_random, seed=seed,
-        )
+        # true_effect/random_effects here are factor-only (the decodability-drop
+        # effect_fn never reads w) -- only the task-direction positive control
+        # genuinely needs w, so it's the only piece that becomes not_estimable.
+        if w_metrics_enabled:
+            any_w = next(iter(checkpoints.values()))["w"] if checkpoints else np.zeros(Z_eff.shape[1])
+            out["projection_removal_control"] = removal_control_report(
+                Z_eff, any_w, U, effect_fn=lambda Z, w_, U_: _projection_removal_decodability_drop(Z, U_),
+                n_random=n_random, seed=seed,
+            )
+        else:
+            out["projection_removal_control"] = _removal_control_without_task_direction(
+                Z_eff, U, effect_fn=_projection_removal_decodability_drop, n_random=n_random, seed=seed,
+            )
+            out["projection_removal_control"]["task_direction_effect"] = _not_estimable(w_metrics_reason)
         return out
 
     return effect_fn
@@ -632,6 +811,8 @@ def run_battery(
     seed: int,
     layer_mode: str = "fixed",
     Z_full: np.ndarray | None = None,
+    w_metrics_enabled: bool = True,
+    w_metrics_reason: str = "",
 ) -> dict:
     n_levels = int(len(np.unique(factor)))
     valid_ranks = ranks_for_n_levels(list(ranks), n_levels)
@@ -661,7 +842,8 @@ def run_battery(
     for estimator in ("lda", "probe"):
         fit_subspace = _make_fit_subspace(estimator, seed)
         candidates = [{"k": r} for r in valid_ranks]
-        effect_fn = _make_effect_fn(checkpoints, seed, n_random=20, layer_mode=layer_mode)
+        effect_fn = _make_effect_fn(checkpoints, seed, n_random=20, layer_mode=layer_mode,
+                                     w_metrics_enabled=w_metrics_enabled, w_metrics_reason=w_metrics_reason)
         try:
             fold_results = run_nested_crossfit(
                 Z, factor, y, groups, candidates, fit_subspace, factor_separation_score, effect_fn,
@@ -680,7 +862,7 @@ def run_battery(
             estimators[estimator] = dict(fold_results=[], error=str(e))
             continue
 
-        if layer_mode == "checkpoint-band" and Z_full is not None and checkpoints:
+        if layer_mode == "checkpoint-band" and Z_full is not None and checkpoints and w_metrics_enabled:
             try:
                 _recompute_band_alignment(fold_results, Z_full, factor, y, groups, checkpoints,
                                            fit_subspace, n_outer, seed)
@@ -691,37 +873,44 @@ def run_battery(
         estimators[estimator] = dict(fold_results=fold_results)
 
     # grouped bootstrap CI + rank-sensitivity curve on a single headline metric
-    # (mean r_var across checkpoints, LDA estimator at the smallest valid rank --
-    # cheap enough to run under bootstrap resampling; the rank-sensitivity curve
-    # separately covers how the metric moves across the full --ranks grid).
+    # (LDA estimator at the smallest valid rank -- cheap enough to run under
+    # bootstrap resampling; the rank-sensitivity curve separately covers how
+    # the metric moves across the full --ranks grid). r_var needs w; when
+    # w-metrics are disabled, this must not silently crash (that's exactly
+    # where an earlier run died) -- fall back to a checkpoint-independent
+    # factor-only metric and record which one was actually used.
     headline_rank = valid_ranks[0]
+    headline_metric_name = "r_var" if (w_metrics_enabled and checkpoints) else "factor_separation_score"
 
     def _headline_metric(row_idx):
-        Zs, fs, ys, gs = Z[row_idx], factor[row_idx], y[row_idx], groups[row_idx]
+        Zs, fs, ys = Z[row_idx], factor[row_idx], y[row_idx]
         try:
             U = lda_subspace(Zs, fs, ys, k=headline_rank, mode="within_class")
         except ValueError:
             return float("nan")
-        if U.shape[1] == 0 or not checkpoints:
+        if U.shape[1] == 0:
             return float("nan")
-        Sigma = np.atleast_2d(np.cov(Zs, rowvar=False)) if len(Zs) > 1 else np.eye(Zs.shape[1])
-        vals = [r_var(ck["w"], U, Sigma) for ck in checkpoints.values()]
-        return float(np.mean(vals))
+        if headline_metric_name == "r_var":
+            Sigma = np.atleast_2d(np.cov(Zs, rowvar=False)) if len(Zs) > 1 else np.eye(Zs.shape[1])
+            return float(np.mean([r_var(ck["w"], U, Sigma) for ck in checkpoints.values()]))
+        return factor_separation_score(Zs, fs, ys, U)
 
     bootstrap = grouped_bootstrap_ci(_headline_metric, groups, n_boot=n_boot, seed=seed)
 
     def _metric_at_rank(k):
         U = lda_subspace(Z, factor, y, k=k, mode="within_class")
-        if U.shape[1] == 0 or not checkpoints:
+        if U.shape[1] == 0:
             return float("nan")
-        Sigma = np.atleast_2d(np.cov(Z, rowvar=False))
-        return float(np.mean([r_var(ck["w"], U, Sigma) for ck in checkpoints.values()]))
+        if headline_metric_name == "r_var":
+            Sigma = np.atleast_2d(np.cov(Z, rowvar=False))
+            return float(np.mean([r_var(ck["w"], U, Sigma) for ck in checkpoints.values()]))
+        return factor_separation_score(Z, factor, y, U)
 
     rank_curve = rank_sensitivity_curve(_metric_at_rank, valid_ranks)
 
     result["estimators"] = estimators
-    result["headline_bootstrap_r_var"] = dict(rank=headline_rank, **bootstrap)
-    result["rank_sensitivity_r_var"] = rank_curve
+    result["headline_bootstrap"] = dict(metric=headline_metric_name, rank=headline_rank, **bootstrap)
+    result["rank_sensitivity"] = dict(metric=headline_metric_name, **rank_curve)
     return result
 
 
@@ -734,7 +923,9 @@ def summarize_prereg_candidate(battery_result: dict) -> dict:
     if battery_result.get("skipped"):
         return dict(name=battery_result["name"], skipped=battery_result["skipped"])
 
-    curve = battery_result["rank_sensitivity_r_var"]
+    boot = battery_result["headline_bootstrap"]
+    metric_name = boot["metric"]
+    curve = battery_result["rank_sensitivity"]
     finite = [(r, v) for r, v in zip(curve["ranks"], curve["values"]) if np.isfinite(v)]
     if len(finite) >= 2:
         vals = np.array([v for _, v in finite])
@@ -747,22 +938,27 @@ def summarize_prereg_candidate(battery_result: dict) -> dict:
     lda_folds = battery_result["estimators"]["lda"]["fold_results"]
     probe_folds = battery_result["estimators"]["probe"]["fold_results"]
 
-    def _mean_r_var(fold_results):
+    def _mean_headline_metric(fold_results):
         vals = []
         for f in fold_results:
             eff = f["effect"]
-            for ck in eff.get("per_checkpoint", {}).values():
-                vals.append(ck["r_var"])
+            if metric_name == "r_var":
+                for ck in eff.get("per_checkpoint", {}).values():
+                    vals.append(ck["r_var"])
+            else:
+                v = eff.get(metric_name)
+                if v is not None and np.isfinite(v):
+                    vals.append(v)
         return float(np.mean(vals)) if vals else float("nan")
 
-    lda_mean, probe_mean = _mean_r_var(lda_folds), _mean_r_var(probe_folds)
+    lda_mean, probe_mean = _mean_headline_metric(lda_folds), _mean_headline_metric(probe_folds)
     agree_sign = np.sign(lda_mean) == np.sign(probe_mean) if np.isfinite(lda_mean) and np.isfinite(probe_mean) else False
 
-    boot = battery_result["headline_bootstrap_r_var"]
     overlap = (boot["lo"] <= probe_mean <= boot["hi"]) or (boot["lo"] <= lda_mean <= boot["hi"])
 
     return dict(
         name=battery_result["name"],
+        headline_metric=metric_name,
         stable_rank_window=stable_ranks if stable else [],
         estimators_agree_sign=bool(agree_sign),
         cis_overlap=bool(overlap),
@@ -803,6 +999,14 @@ def main(argv=None) -> None:
              "space, so it compares w and U in the same representation; all other metrics still "
              "use --layer regardless of this flag.",
     )
+    ap.add_argument(
+        "--w-metrics", choices=["auto", "on", "off"], default="auto",
+        help="auto (default): load w; if its dimensionality doesn't match the cache's embedding "
+             "dimensionality, disable every w-dependent metric (alignment, r_var, "
+             "r_var_class_conditional, prediction_change, and the task-direction positive control) "
+             "for the whole run, print why, and continue. on: the same dimension check, but a "
+             "mismatch is a hard failure. off: skip loading w entirely.",
+    )
     args = ap.parse_args(argv)
 
     out_path = Path(args.out) if args.out else Path(f"analysis/step3/reliance_layer{args.layer}.json")
@@ -829,12 +1033,19 @@ def main(argv=None) -> None:
     corpus_data: dict[str, dict] = {}
     join_stats: dict[str, dict] = {}
     num_cache_layers: int | None = None
+    embedding_dim: int | None = None
     for corpus in corpora_needed:
         corpus_dir = CORPUS_DIR[corpus]
         manifest_rows = read_manifest(manifest_dir / f"{corpus}.csv")
         manifest_df = pd.DataFrame([asdict(r) for r in manifest_rows])
         cache_paths, cache_emb = load_corpus_embeddings(cache_root, corpus_dir, args.layer)
         joined_df, joined_emb, stats = join_cache_to_manifest(cache_paths, cache_emb, manifest_df, corpus_dir)
+
+        if embedding_dim is None:
+            embedding_dim = joined_emb.shape[1]
+        elif embedding_dim != joined_emb.shape[1]:
+            raise ValueError(f"{corpus}: cache embedding is {joined_emb.shape[1]}-d, expected "
+                              f"{embedding_dim}-d (mismatched across corpora)")
 
         emb_full = None
         if args.layer_mode == "checkpoint-band":
@@ -862,9 +1073,14 @@ def main(argv=None) -> None:
               f"n_joined={stats['n_joined']} n_dropped={stats['n_dropped']}")
 
     checkpoints = load_all_checkpoints(Path(args.ckpt_dir), RUNS, args.layer,
-                                        layer_mode=args.layer_mode, num_cache_layers=num_cache_layers)
+                                        layer_mode=args.layer_mode, num_cache_layers=num_cache_layers,
+                                        w_metrics_mode=args.w_metrics, embedding_dim=embedding_dim)
     if not checkpoints:
         print("[WARN] no checkpoints loaded -- w-dependent metrics will be empty", file=sys.stderr)
+
+    w_metrics = resolve_w_metrics(checkpoints, args.w_metrics, embedding_dim)
+    print(f"[w-metrics] enabled={w_metrics['enabled']} w_dim={w_metrics['w_dim']} "
+          f"embedding_dim={w_metrics['embedding_dim']} reason={w_metrics['reason']!r}")
 
     battery_results = []
     for spec in batteries:
@@ -873,7 +1089,8 @@ def main(argv=None) -> None:
 
         print(f"[battery] {spec['name']}: n_rows={len(y)} n_levels={len(np.unique(factor))}")
         res = run_battery(spec, Z, factor, y, groups, checkpoints, args.ranks, args.n_boot, args.seed,
-                           layer_mode=args.layer_mode, Z_full=Z_full)
+                           layer_mode=args.layer_mode, Z_full=Z_full,
+                           w_metrics_enabled=w_metrics["enabled"], w_metrics_reason=w_metrics["reason"])
         battery_results.append(res)
 
     prereg = [summarize_prereg_candidate(r) for r in battery_results]
@@ -885,10 +1102,12 @@ def main(argv=None) -> None:
         layer=args.layer,
         layer_mode=args.layer_mode,
         seed=args.seed,
+        w_metrics=w_metrics,
         join_stats=join_stats,
         checkpoints={run: dict(ckpt_layer_center=ck["ckpt_layer_center"], ckpt_layer_band=ck["ckpt_layer_band"],
                                 layer_pooling=ck["layer_pooling"], band_weights=ck["band_weights"],
-                                w_layer_mismatch=ck["w_layer_mismatch"]) for run, ck in checkpoints.items()},
+                                w_layer_mismatch=ck["w_layer_mismatch"], w_dim=ck["w_dim"],
+                                w_dim_mismatch=ck["w_dim_mismatch"]) for run, ck in checkpoints.items()},
         batteries=battery_results,
         prereg_candidates=prereg,
     )
@@ -901,9 +1120,9 @@ def main(argv=None) -> None:
         if "skipped" in r:
             print(f"  {r['name']}: SKIPPED ({r['skipped']})")
             continue
-        print(f"  {r['name']}: n_groups={r['n_groups']} degenerate={r['grouping_degenerate']} "
-              f"estimators_agree_sign={r['estimators_agree_sign']} cis_overlap={r['cis_overlap']} "
-              f"stable_ranks={r['stable_rank_window']}")
+        print(f"  {r['name']}: headline_metric={r['headline_metric']} n_groups={r['n_groups']} "
+              f"degenerate={r['grouping_degenerate']} estimators_agree_sign={r['estimators_agree_sign']} "
+              f"cis_overlap={r['cis_overlap']} stable_ranks={r['stable_rank_window']}")
     print(f"\nwrote -> {out_path}")
 
 
