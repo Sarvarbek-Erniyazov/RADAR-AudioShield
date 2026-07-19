@@ -84,6 +84,7 @@ import argparse
 import json
 import subprocess
 import sys
+import threading
 import warnings
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -145,6 +146,13 @@ CORPUS_DIR = {
 }
 
 DEFAULT_RANKS = (1, 2, 3, 5, 8, 12, 16, 24)
+# Wall-clock budget for a single (battery, estimator) crossfit call, and
+# separately for the headline bootstrap / rank-sensitivity sweep -- an
+# overnight run once stalled inside the first battery (constant memory, no
+# error, log frozen); see _run_with_timeout. 30 min is generous for a real
+# 70k-row battery at the default --ranks/--n-boot, short enough that one
+# intractable cell can't eat an overnight run's whole budget.
+DEFAULT_BATTERY_TIMEOUT_SECONDS = 1800.0
 
 # (corpus, factor, grouping) batteries -- exactly these, nothing pooled across
 # corpora. `row_filter`, when present, restricts the battery to rows matching
@@ -360,6 +368,60 @@ def _not_estimable(reason: str) -> dict:
     """Sentinel for a metric that requires w when --w-metrics has disabled w
     -- never silently omitted, always this exact shape."""
     return {"value": None, "status": "not_estimable", "reason": reason}
+
+
+# ---------------------------------------------------------------------------
+# per-(battery, estimator) timeout guard
+# ---------------------------------------------------------------------------
+
+
+def _run_with_timeout(fn: Callable[[], object], timeout: float | None) -> tuple[bool, object, Exception | None]:
+    """Run fn() (a zero-arg closure) in a background daemon thread with a
+    hard wall-clock timeout. Returns (completed, value, exc):
+        completed=False            -- fn() did not finish within `timeout`.
+        completed=True, exc=None   -- fn() returned `value`.
+        completed=True, exc=<Exception> -- fn() raised `exc`.
+
+    Python cannot forcibly kill a thread, so a timed-out call is NOT
+    actually interrupted -- the background thread is left running (daemon=
+    True, so it can never block this process from exiting once everything
+    else is done) while the caller stops waiting and moves on. This is
+    exactly what turns "an overnight run stalled inside the first battery,
+    process pinned at constant memory, log frozen, no error" into "one
+    (battery, estimator) cell is marked failed and every other cell still
+    runs" -- a hung matrix must degrade one cell, not the run.
+    """
+    outcome: dict = {}
+
+    def _target():
+        try:
+            outcome["value"] = fn()
+        except Exception as e:  # noqa: BLE001 -- report ANY failure to the caller, never swallow silently
+            outcome["error"] = e
+
+    thread = threading.Thread(target=_target, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    if thread.is_alive():
+        return False, None, None
+    if "error" in outcome:
+        return True, None, outcome["error"]
+    return True, outcome.get("value"), None
+
+
+def _guarded_call(fn: Callable[[], dict], timeout: float, fallback: Callable[[str], dict]) -> dict:
+    """Run fn() (expected to return a dict) under _run_with_timeout; on
+    timeout or exception, call fallback(reason) to build a status="failed"
+    result instead of propagating. On success, fn()'s own dict gets
+    status="ok" merged in (never overwriting a status key fn() already set)."""
+    completed, value, exc = _run_with_timeout(fn, timeout)
+    if not completed:
+        return fallback(f"timed out after {timeout}s")
+    if exc is not None:
+        return fallback(f"{type(exc).__name__}: {exc}")
+    out = dict(value)
+    out.setdefault("status", "ok")
+    return out
 
 
 def _removal_control_without_task_direction(
@@ -813,6 +875,7 @@ def run_battery(
     Z_full: np.ndarray | None = None,
     w_metrics_enabled: bool = True,
     w_metrics_reason: str = "",
+    battery_timeout_seconds: float = DEFAULT_BATTERY_TIMEOUT_SECONDS,
 ) -> dict:
     n_levels = int(len(np.unique(factor)))
     valid_ranks = ranks_for_n_levels(list(ranks), n_levels)
@@ -844,24 +907,32 @@ def run_battery(
         candidates = [{"k": r} for r in valid_ranks]
         effect_fn = _make_effect_fn(checkpoints, seed, n_random=20, layer_mode=layer_mode,
                                      w_metrics_enabled=w_metrics_enabled, w_metrics_reason=w_metrics_reason)
-        try:
-            fold_results = run_nested_crossfit(
+
+        def _crossfit_fallback(reason: str, _estimator=estimator) -> dict:
+            print(f"[WARN] battery {spec['name']}: estimator={_estimator} failed ({reason}); "
+                  f"recording as failed, not crashing the run", file=sys.stderr)
+            return dict(fold_results=[], status="failed", error=reason)
+
+        # Wrapped rather than a plain try/except: the failure mode this
+        # guards against (an overnight run stalled here, log frozen, no
+        # error) never raises, so an exception handler alone can't catch it
+        # -- only a wall-clock timeout can. Most exception-raising failures
+        # (e.g. grouping_degenerate leaving a fold's selection set missing
+        # factor levels entirely) are still caught the same way, just via
+        # the same guard instead of a separate except clause.
+        estimator_result = _guarded_call(
+            lambda: dict(fold_results=run_nested_crossfit(
                 Z, factor, y, groups, candidates, fit_subspace, factor_separation_score, effect_fn,
                 n_outer_splits=n_outer, n_inner_splits=min(3, n_outer), seed=seed,
-            )
-        except ValueError as e:
-            # Most likely cause: grouping_degenerate (grouping column == factor
-            # column, or otherwise every group carries exactly one factor level)
-            # -- a GroupKFold split can then leave a fold's SELECTION set missing
-            # factor levels entirely, so no candidate rank produces a usable
-            # subspace. Record the failure per-estimator rather than crashing the
-            # whole run (and every other battery after it) -- this is precisely
-            # what grouping_degenerate=true exists to warn about.
-            print(f"[WARN] battery {spec['name']}: estimator={estimator} failed "
-                  f"({e}); recording as an error, not crashing the run", file=sys.stderr)
-            estimators[estimator] = dict(fold_results=[], error=str(e))
+            )),
+            battery_timeout_seconds, _crossfit_fallback,
+        )
+
+        if estimator_result.get("status") == "failed":
+            estimators[estimator] = estimator_result
             continue
 
+        fold_results = estimator_result["fold_results"]
         if layer_mode == "checkpoint-band" and Z_full is not None and checkpoints and w_metrics_enabled:
             try:
                 _recompute_band_alignment(fold_results, Z_full, factor, y, groups, checkpoints,
@@ -870,7 +941,7 @@ def run_battery(
                 print(f"[WARN] battery {spec['name']}: estimator={estimator} band-alignment "
                       f"recompute failed ({e})", file=sys.stderr)
 
-        estimators[estimator] = dict(fold_results=fold_results)
+        estimators[estimator] = estimator_result
 
     # grouped bootstrap CI + rank-sensitivity curve on a single headline metric
     # (LDA estimator at the smallest valid rank -- cheap enough to run under
@@ -878,7 +949,9 @@ def run_battery(
     # the metric moves across the full --ranks grid). r_var needs w; when
     # w-metrics are disabled, this must not silently crash (that's exactly
     # where an earlier run died) -- fall back to a checkpoint-independent
-    # factor-only metric and record which one was actually used.
+    # factor-only metric and record which one was actually used. Both sweeps
+    # refit LDA repeatedly (once per bootstrap resample / once per rank), so
+    # they get the same timeout guard as the main crossfit call above.
     headline_rank = valid_ranks[0]
     headline_metric_name = "r_var" if (w_metrics_enabled and checkpoints) else "factor_separation_score"
 
@@ -895,7 +968,16 @@ def run_battery(
             return float(np.mean([r_var(ck["w"], U, Sigma) for ck in checkpoints.values()]))
         return factor_separation_score(Zs, fs, ys, U)
 
-    bootstrap = grouped_bootstrap_ci(_headline_metric, groups, n_boot=n_boot, seed=seed)
+    def _bootstrap_fallback(reason: str) -> dict:
+        print(f"[WARN] battery {spec['name']}: headline bootstrap failed ({reason})", file=sys.stderr)
+        return dict(mean=float("nan"), std=float("nan"), lo=float("nan"), hi=float("nan"),
+                    n_boot=n_boot, n_groups=n_groups, n_finite=0, n_boot_failed=n_boot,
+                    status="failed", error=reason)
+
+    bootstrap = _guarded_call(
+        lambda: grouped_bootstrap_ci(_headline_metric, groups, n_boot=n_boot, seed=seed),
+        battery_timeout_seconds, _bootstrap_fallback,
+    )
 
     def _metric_at_rank(k):
         U = lda_subspace(Z, factor, y, k=k, mode="within_class")
@@ -906,7 +988,15 @@ def run_battery(
             return float(np.mean([r_var(ck["w"], U, Sigma) for ck in checkpoints.values()]))
         return factor_separation_score(Z, factor, y, U)
 
-    rank_curve = rank_sensitivity_curve(_metric_at_rank, valid_ranks)
+    def _rank_curve_fallback(reason: str) -> dict:
+        print(f"[WARN] battery {spec['name']}: rank-sensitivity sweep failed ({reason})", file=sys.stderr)
+        return dict(ranks=list(valid_ranks), values=[float("nan")] * len(valid_ranks),
+                    status="failed", error=reason)
+
+    rank_curve = _guarded_call(
+        lambda: rank_sensitivity_curve(_metric_at_rank, valid_ranks),
+        battery_timeout_seconds, _rank_curve_fallback,
+    )
 
     result["estimators"] = estimators
     result["headline_bootstrap"] = dict(metric=headline_metric_name, rank=headline_rank, **bootstrap)
@@ -1007,6 +1097,13 @@ def main(argv=None) -> None:
              "for the whole run, print why, and continue. on: the same dimension check, but a "
              "mismatch is a hard failure. off: skip loading w entirely.",
     )
+    ap.add_argument(
+        "--battery-timeout-seconds", type=float, default=DEFAULT_BATTERY_TIMEOUT_SECONDS,
+        help=f"wall-clock budget for each (battery, estimator) crossfit call, and separately for the "
+             f"headline bootstrap / rank-sensitivity sweep -- a cell that doesn't finish in time is "
+             f"recorded as status='failed' and the run continues to the next configuration, rather "
+             f"than hanging (default: {DEFAULT_BATTERY_TIMEOUT_SECONDS:.0f}s).",
+    )
     args = ap.parse_args(argv)
 
     out_path = Path(args.out) if args.out else Path(f"analysis/step3/reliance_layer{args.layer}.json")
@@ -1090,7 +1187,8 @@ def main(argv=None) -> None:
         print(f"[battery] {spec['name']}: n_rows={len(y)} n_levels={len(np.unique(factor))}")
         res = run_battery(spec, Z, factor, y, groups, checkpoints, args.ranks, args.n_boot, args.seed,
                            layer_mode=args.layer_mode, Z_full=Z_full,
-                           w_metrics_enabled=w_metrics["enabled"], w_metrics_reason=w_metrics["reason"])
+                           w_metrics_enabled=w_metrics["enabled"], w_metrics_reason=w_metrics["reason"],
+                           battery_timeout_seconds=args.battery_timeout_seconds)
         battery_results.append(res)
 
     prereg = [summarize_prereg_candidate(r) for r in battery_results]

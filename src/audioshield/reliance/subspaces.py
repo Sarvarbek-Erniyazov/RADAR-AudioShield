@@ -27,6 +27,7 @@ from __future__ import annotations
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold
+from sklearn.preprocessing import StandardScaler
 
 from ._linalg import orthonormal_basis
 
@@ -108,6 +109,19 @@ def lda_subspace(
     y = np.asarray(y)
     d = Z.shape[1]
 
+    # Numerical conditioning for the eigh solve below: raw XLS-R-scale
+    # embeddings have wildly varying per-dimension scale, which can
+    # ill-condition the scatter-matrix eigenproblem (observed: an overnight
+    # run stalled here). Standardize, solve, then map the discriminant
+    # directions back to the ORIGINAL embedding coordinate frame before
+    # returning -- every caller downstream (alignment/r_var/task-direction
+    # metrics against a checkpoint's raw w) is unaffected. Fit on whatever
+    # Z is passed in; per this module's documented contract (module
+    # docstring) callers only ever pass selection-fold data, so this never
+    # touches effect-fold rows.
+    scaler = StandardScaler()
+    Z = scaler.fit_transform(Z)
+
     if mode == "covariate":
         Z_resid = _residualize_by_class(Z, y)
         Sb, Sw, n_usable = _between_within_scatter(Z_resid, factor)
@@ -138,6 +152,7 @@ def lda_subspace(
     eigvals, eigvecs = eigh(Sb, Sw + ridge * np.eye(d))
     order = np.argsort(eigvals)[::-1]
     top = eigvecs[:, order[:k]]
+    top = top / scaler.scale_[:, None]  # map directions back to the original embedding space
     return orthonormal_basis(top, k=k)
 
 
@@ -158,6 +173,16 @@ def _crossfitted_weight_rows(
         return np.zeros((0, Z.shape[1]))
     k_eff = max(2, min(n_splits, int(counts.min()), n))
 
+    # Same numerical-conditioning rationale as lda_subspace's eigh solve:
+    # raw XLS-R-scale features burn the probe's lbfgs iteration budget
+    # without converging (observed). Fit once on whatever Z this call
+    # received (never effect-fold data -- see module docstring) and use the
+    # SAME scale for every inner cross-fitting fold below; coefficient rows
+    # are mapped back to the original embedding space before being stacked,
+    # so callers see subspaces in the same coordinate frame as before.
+    scaler = StandardScaler()
+    Z = scaler.fit_transform(Z)
+
     splitter = None
     if groups is not None and len(np.unique(groups)) >= k_eff:
         splitter = GroupKFold(n_splits=k_eff)
@@ -174,9 +199,9 @@ def _crossfitted_weight_rows(
     for train_idx, _ in splitter.split(**split_args):
         if len(np.unique(factor[train_idx])) < 2:
             continue
-        clf = LogisticRegression(max_iter=1000, C=C, random_state=seed)
+        clf = LogisticRegression(max_iter=3000, C=C, random_state=seed)
         clf.fit(Z[train_idx], factor[train_idx])
-        rows.append(np.atleast_2d(clf.coef_))
+        rows.append(np.atleast_2d(clf.coef_) / scaler.scale_[None, :])
     return np.concatenate(rows, axis=0) if rows else np.zeros((0, Z.shape[1]))
 
 

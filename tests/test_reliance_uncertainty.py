@@ -64,6 +64,38 @@ def test_grouped_bootstrap_ci_handles_nan_metric_values():
     assert np.isnan(out["mean"])
 
 
+def test_grouped_bootstrap_ci_catches_and_counts_bad_resamples():
+    """A single bad resample (compute_metric raising) must be caught and
+    skipped, not fatal -- counted in n_boot_failed, the CI still built from
+    whatever resamples succeeded."""
+    groups = np.array(["a", "a", "b", "b", "c", "c", "d", "d"])
+    call_count = {"n": 0}
+
+    def flaky(idx):
+        call_count["n"] += 1
+        if call_count["n"] % 3 == 0:
+            raise RuntimeError("simulated bad resample")
+        return 1.0
+
+    out = grouped_bootstrap_ci(flaky, groups, n_boot=30, seed=0)
+
+    assert out["n_boot_failed"] > 0
+    assert out["n_boot_failed"] + out["n_finite"] == out["n_boot"]
+    assert out["mean"] == pytest.approx(1.0)  # successful resamples still produce the right answer
+
+
+def test_grouped_bootstrap_ci_all_resamples_failing_is_not_fatal():
+    groups = np.array(["a", "a", "b", "b", "c", "c"])
+
+    def always_raises(idx):
+        raise RuntimeError("always fails")
+
+    out = grouped_bootstrap_ci(always_raises, groups, n_boot=10, seed=0)
+    assert out["n_boot_failed"] == 10
+    assert out["n_finite"] == 0
+    assert np.isnan(out["mean"])
+
+
 def test_rank_sensitivity_curve_tracks_metric_across_ranks(planted_factor_data):
     d = planted_factor_data
 

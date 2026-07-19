@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import warnings
 from pathlib import Path
 
@@ -13,12 +14,15 @@ import pytest
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import run_reliance_battery as rrb  # noqa: E402 -- needed for monkeypatching module-level names
 from run_reliance_battery import (  # noqa: E402
     LAYER_LOGITS_KEY,
     _describe_pooling_mismatch,
     _find_layer_logits_key,
+    _guarded_call,
     _not_estimable,
     _removal_control_without_task_direction,
+    _run_with_timeout,
     _uniform_band_weights,
     groups_from_column,
     join_cache_to_manifest,
@@ -899,3 +903,151 @@ def test_main_matched_dims_regression_guard(tmp_path):
     per_ck = fold0["effect"]["per_checkpoint"]["e007_A_fresh"]
     assert per_ck["alignment"] is not None and np.isfinite(per_ck["alignment"])
     assert battery["headline_bootstrap"]["metric"] == "r_var"
+
+
+# ---------------------------------------------------------------------------
+# per-(battery, estimator) timeout guard: _run_with_timeout / _guarded_call
+# ---------------------------------------------------------------------------
+
+
+def test_run_with_timeout_returns_value_on_success():
+    completed, value, exc = _run_with_timeout(lambda: 42, timeout=5)
+    assert (completed, value, exc) == (True, 42, None)
+
+
+def test_run_with_timeout_captures_exception_without_raising():
+    def _boom():
+        raise ValueError("boom")
+
+    completed, value, exc = _run_with_timeout(_boom, timeout=5)
+    assert completed is True
+    assert value is None
+    assert isinstance(exc, ValueError)
+    assert "boom" in str(exc)
+
+
+def test_run_with_timeout_reports_not_completed_on_timeout():
+    def _slow():
+        time.sleep(1.0)
+        return "done"
+
+    start = time.time()
+    completed, value, exc = _run_with_timeout(_slow, timeout=0.05)
+    elapsed = time.time() - start
+
+    assert completed is False
+    assert value is None
+    assert exc is None
+    assert elapsed < 0.5, f"took {elapsed}s -- looks like it waited for the slow call instead of timing out"
+
+
+def test_guarded_call_success_merges_status_ok():
+    out = _guarded_call(lambda: {"x": 1}, timeout=5, fallback=lambda r: {"status": "failed", "error": r})
+    assert out == {"x": 1, "status": "ok"}
+
+
+def test_guarded_call_does_not_override_an_explicit_status():
+    out = _guarded_call(lambda: {"x": 1, "status": "ok-already"}, timeout=5,
+                         fallback=lambda r: {"status": "failed", "error": r})
+    assert out["status"] == "ok-already"
+
+
+def test_guarded_call_timeout_uses_fallback():
+    def _slow():
+        time.sleep(1.0)
+
+    out = _guarded_call(_slow, timeout=0.05, fallback=lambda r: {"status": "failed", "error": r})
+    assert out["status"] == "failed"
+    assert "timed out after 0.05s" in out["error"]
+
+
+def test_guarded_call_exception_uses_fallback():
+    def _boom():
+        raise RuntimeError("kaboom")
+
+    out = _guarded_call(_boom, timeout=5, fallback=lambda r: {"status": "failed", "error": r})
+    assert out["status"] == "failed"
+    assert "kaboom" in out["error"]
+
+
+# ---------------------------------------------------------------------------
+# run_battery: the timeout guard integrated -- a hung cell degrades, the run
+# completes
+# ---------------------------------------------------------------------------
+
+
+def test_run_battery_completes_normally_reports_status_ok(synthetic_battery_data):
+    """With a generous timeout (the default), every guarded piece succeeds
+    and reports status='ok' -- the additive schema change doesn't disturb
+    the happy path."""
+    d = synthetic_battery_data
+    spec = dict(name="status_ok_test", corpus="diffssd", factor="generator_id", grouping="source_id")
+    result = run_battery(
+        spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
+        ranks=[1, 2], n_boot=10, seed=13,
+    )
+    for name, estimator_result in result["estimators"].items():
+        assert estimator_result["status"] == "ok", f"{name}: {estimator_result}"
+    assert result["headline_bootstrap"]["status"] == "ok"
+    assert result["rank_sensitivity"]["status"] == "ok"
+
+
+def test_run_battery_timeout_records_failed_and_continues(synthetic_battery_data, monkeypatch):
+    """Simulates a hung (battery, estimator) cell via an artificially tiny
+    timeout plus slowed-down subspace fits -- the practical, deterministic
+    stand-in for reproducing a genuine ill-conditioned lbfgs/eigh stall
+    (the overnight run that motivated this fix never raised an exception,
+    so an exception handler alone couldn't have caught it -- only a
+    wall-clock timeout can). Verifies run_battery still completes promptly
+    (never hangs) and every guarded piece -- both estimators' crossfit, the
+    headline bootstrap, the rank-sensitivity sweep -- is marked
+    status='failed' rather than propagating or blocking the rest of the run."""
+    d = synthetic_battery_data
+    spec = dict(name="timeout_test", corpus="diffssd", factor="generator_id", grouping="source_id")
+
+    def _slow(*a, **kw):
+        time.sleep(0.5)
+        return np.zeros((d["Z"].shape[1], 1))
+
+    monkeypatch.setattr(rrb, "lda_subspace", _slow)
+    monkeypatch.setattr(rrb, "crossfitted_probe_subspace", _slow)
+
+    start = time.time()
+    result = run_battery(
+        spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
+        ranks=[1, 2], n_boot=10, seed=13, battery_timeout_seconds=0.05,
+    )
+    elapsed = time.time() - start
+
+    assert elapsed < 3.0, f"run_battery took {elapsed}s -- looks like it waited out the slow calls"
+    for name, estimator_result in result["estimators"].items():
+        assert estimator_result["status"] == "failed", f"{name} estimator did not report failed"
+        assert "timed out" in estimator_result["error"]
+        assert estimator_result["fold_results"] == []
+    assert result["headline_bootstrap"]["status"] == "failed"
+    assert "timed out" in result["headline_bootstrap"]["error"]
+    assert result["rank_sensitivity"]["status"] == "failed"
+    assert "timed out" in result["rank_sensitivity"]["error"]
+
+
+def test_run_battery_timeout_on_one_estimator_does_not_block_the_other(synthetic_battery_data, monkeypatch):
+    """Only the probe estimator is slowed down -- lda must still complete
+    and report status='ok', proving one hung cell degrades independently
+    rather than taking the whole battery down with it."""
+    d = synthetic_battery_data
+    spec = dict(name="partial_timeout_test", corpus="diffssd", factor="generator_id", grouping="source_id")
+
+    def _slow(*a, **kw):
+        time.sleep(20.0)
+        return np.zeros((d["Z"].shape[1], 1))
+
+    monkeypatch.setattr(rrb, "crossfitted_probe_subspace", _slow)
+
+    result = run_battery(
+        spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
+        ranks=[1, 2], n_boot=10, seed=13, battery_timeout_seconds=5,
+    )
+
+    assert result["estimators"]["probe"]["status"] == "failed"
+    assert result["estimators"]["lda"]["status"] == "ok"
+    assert result["estimators"]["lda"]["fold_results"]
