@@ -15,3 +15,13 @@ of how those artifacts were made; not part of the current pipeline.
   (commit c528680), used to verify the DiffSSD re-acquisition (2026-07-19,
   94,601/94,604 exact).
 - `_mlaad_pipeline.py` — MLAAD acquisition/batching tooling (Roadmap Step 0).
+
+- `_kaggle_vault.sh` + `_kaggle_vault.log` — off-machine backup mechanism
+  (chunked tar -> private Kaggle dataset, SHA256-gated, upload verified by
+  remote file count). Attempted 2026-07-09 for 05_AI4T, 02_In-the-Wild and
+  07_FakeOrReal; all three failed at the upload step with a kaggle-CLI temp
+  path error (`AppData\Local\Temp\.kaggle\uploads\...` not found) and were
+  never retried. The corpora were subsequently deleted post-embedding by
+  `_gated_delete.py`, leaving no off-machine copy. Retained as provenance and
+  as the basis for a fixed backup path (see roadmap: checkpoint/corpus
+  backup).

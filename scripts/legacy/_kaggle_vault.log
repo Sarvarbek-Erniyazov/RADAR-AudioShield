@@ -1,0 +1,51 @@
+[2026-07-09 23:26:31] [05_AI4T] staging (chunked tar)...
+[2026-07-09 23:27:39] [05_AI4T] uploading -> kaggle.com/sarvarbekerniyazov/radar-vault-05-ai4t (PRIVATE)...
+[Errno 2] No such file or directory: 'C:\\Users\\sharg\\AppData\\Local\\Temp\\.kaggle/uploads\\C_/Users/sharg/Desktop/next mission/RADAR AudioShield/datasets/_vault_staging/radar-vault-05-ai4t_05_AI4T.tar.part-00.json'
+Starting upload for file 05_AI4T.tar.part-00
+[Errno 2] No such file or directory: 'C:\\Users\\sharg\\AppData\\Local\\Temp\\.kaggle/uploads\\C_/Users/sharg/Desktop/next mission/RADAR AudioShield/datasets/_vault_staging/radar-vault-05-ai4t_05_AI4T.tar.part-00.json'
+Starting upload for file 05_AI4T.tar.part-00
+[2026-07-09 23:27:44] [05_AI4T] upload FAILED — staging kept; retry: bash _kaggle_vault.sh 05_AI4T
+[2026-07-09 23:31:34] [02_In-the-Wild] staging (chunked tar)...
+[2026-07-09 23:34:13] [02_In-the-Wild] uploading -> kaggle.com/sarvarbekerniyazov/radar-vault-02-in-the-wild (PRIVATE)...
+[Errno 2] No such file or directory: 'C:\\Users\\sharg\\AppData\\Local\\Temp\\.kaggle/uploads\\C_/Users/sharg/Desktop/next mission/RADAR AudioShield/datasets/_vault_staging/radar-vault-02-in-the-wild_02_In-the-Wild.tar.part-00.json'
+Starting upload for file 02_In-the-Wild.tar.part-00
+[Errno 2] No such file or directory: 'C:\\Users\\sharg\\AppData\\Local\\Temp\\.kaggle/uploads\\C_/Users/sharg/Desktop/next mission/RADAR AudioShield/datasets/_vault_staging/radar-vault-02-in-the-wild_02_In-the-Wild.tar.part-00.json'
+Starting upload for file 02_In-the-Wild.tar.part-00
+[2026-07-09 23:34:18] [02_In-the-Wild] upload FAILED — staging kept; retry: bash _kaggle_vault.sh 02_In-the-Wild
+[2026-07-09 23:44:00] [07_FakeOrReal] staging (chunked tar)...
+[2026-07-09 23:50:50] [07_FakeOrReal] uploading -> kaggle.com/sarvarbekerniyazov/radar-vault-07-fakeorreal (PRIVATE)...
+[Errno 2] No such file or directory: 'C:\\Users\\sharg\\AppData\\Local\\Temp\\.kaggle/uploads\\C_/Users/sharg/Desktop/next mission/RADAR AudioShield/datasets/_vault_staging/radar-vault-07-fakeorreal_07_FakeOrReal.tar.part-00.json'
+Starting upload for file 07_FakeOrReal.tar.part-00
+[Errno 2] No such file or directory: 'C:\\Users\\sharg\\AppData\\Local\\Temp\\.kaggle/uploads\\C_/Users/sharg/Desktop/next mission/RADAR AudioShield/datasets/_vault_staging/radar-vault-07-fakeorreal_07_FakeOrReal.tar.part-00.json'
+Starting upload for file 07_FakeOrReal.tar.part-00
+[2026-07-09 23:50:54] [07_FakeOrReal] upload FAILED — staging kept; retry: bash _kaggle_vault.sh 07_FakeOrReal
+[2026-07-10 00:03:41] [05_AI4T] staging (chunked tar)...
+[2026-07-10 00:04:42] [05_AI4T] uploading -> kaggle.com/sarvarbekerniyazov/radar-vault-05-ai4t (PRIVATE)...
+Starting upload for file 05_AI4T.tar.part-00
+401 - Unauthorized - Unauthorized access
+Starting upload for file 05_AI4T.tar.part-00
+401 - Unauthorized - Unauthorized access
+[2026-07-10 00:04:45] [05_AI4T] upload FAILED — staging kept; retry: bash _kaggle_vault.sh 05_AI4T
+[2026-07-10 00:08:04] [02_In-the-Wild] staging (chunked tar)...
+[2026-07-10 00:09:43] [02_In-the-Wild] uploading -> kaggle.com/sarvarbekerniyazov/radar-vault-02-in-the-wild (PRIVATE)...
+Starting upload for file 02_In-the-Wild.tar.part-00
+401 - Unauthorized - Unauthorized access
+Starting upload for file 02_In-the-Wild.tar.part-00
+401 - Unauthorized - Unauthorized access
+[2026-07-10 00:09:45] [02_In-the-Wild] upload FAILED — staging kept; retry: bash _kaggle_vault.sh 02_In-the-Wild
+[2026-07-10 00:17:37] [07_FakeOrReal] staging (chunked tar)...
+[2026-07-10 00:20:29] [07_FakeOrReal] uploading -> kaggle.com/sarvarbekerniyazov/radar-vault-07-fakeorreal (PRIVATE)...
+Starting upload for file 07_FakeOrReal.tar.part-00
+401 - Unauthorized - Unauthorized access
+Starting upload for file 07_FakeOrReal.tar.part-00
+401 - Unauthorized - Unauthorized access
+[2026-07-10 00:20:31] [07_FakeOrReal] upload FAILED — staging kept; retry: bash _kaggle_vault.sh 07_FakeOrReal
+[2026-07-10 00:35:30] [04_ReplayDF] staging (chunked tar)...
+[2026-07-10 00:44:36] [04_ReplayDF] uploading -> kaggle.com/sarvarbekerniyazov/radar-vault-04-replaydf (PRIVATE)...
+Starting upload for file 04_ReplayDF.tar.part-00
+401 - Unauthorized - Unauthorized access
+Starting upload for file 04_ReplayDF.tar.part-00
+401 - Unauthorized - Unauthorized access
+[2026-07-10 00:44:38] [04_ReplayDF] upload FAILED — staging kept; retry: bash _kaggle_vault.sh 04_ReplayDF
+[2026-07-10 00:44:38] === done ===
+[2026-07-10 00:44:38] RETRY NEEDED: 05_AI4T 02_In-the-Wild 07_FakeOrReal 04_ReplayDF
