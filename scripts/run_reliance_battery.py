@@ -6,8 +6,42 @@ computation. Loads three checkpoints only to extract their frozen final
 linear-classifier weight (the "task direction" w) for alignment/removal
 metrics; the backbones themselves are never touched.
 
+--layer-mode {fixed, checkpoint-band}: the e007 heads (src/audioshield/models/
+ssl_backbone.py's LayerWeightedSSL) do not read a single hidden-state layer --
+they learn a softmax-weighted sum over ALL cached layers (self.layer_logits,
+wired in as AudioShieldX.ssl.layer_logits), initialized as a soft band around
+layer_weight_init_center but free to redistribute during training. So `w`
+lives in that pooled representation, not in any one frozen layer's embedding
+space.
+  - fixed (default): unchanged prior behaviour. Every metric, including
+    alignment, uses the single --layer embedding for both U and w. If the
+    checkpoint's own layer-weighting center differs from --layer (normally
+    true for these checkpoints), w_layer_mismatch is set and a comparison
+    warning is printed, but the run proceeds -- alignment(w, U) is then a
+    comparison across two different representations and should be read with
+    that caveat.
+  - checkpoint-band: ONLY the alignment metric changes. For each checkpoint,
+    the embedding matrix is re-pooled across ALL cached hidden-state layers
+    using that checkpoint's own resolved layer weights (its learned
+    self.layer_logits after softmax, or -- if that parameter isn't present in
+    the checkpoint -- a uniform average over the config's
+    layer_weight_init_band, loudly flagged as layer_pooling=
+    "uniform_band_fallback"). A subspace is refit in that pooled space (same
+    estimator, same rank already chosen by the shared --layer run, same
+    selection/effect split -- effect rows are never touched) so alignment
+    compares w and U in the same coordinate system. w_layer_mismatch is False
+    whenever pooling used the real learned weights (learned_softmax); the
+    uniform-band fallback still sets it True, since it is an approximation of
+    the model's actual pooling, not the pooling itself.
+  Every OTHER metric (r_var, r_var_class_conditional, prediction_change,
+  LEACE, INLP, and their removal_control_report controls) does not involve w
+  at all beyond a fixed weight vector, and always uses the single --layer
+  embedding regardless of --layer-mode, so those stay comparable across
+  checkpoints and across --layer-mode runs.
+
 Usage:
     python scripts/run_reliance_battery.py --layer 9
+    python scripts/run_reliance_battery.py --layer 9 --layer-mode checkpoint-band
 
 Do NOT run against the real embedding cache from this repo checkout -- it
 lives on the collaborator machine (see --cache-root's default). This script
@@ -33,7 +67,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score
 
 from audioshield.data.manifest import read_manifest
-from audioshield.reliance.crossfit import run_nested_crossfit
+from audioshield.reliance.crossfit import assert_no_group_leakage, make_nested_folds, run_nested_crossfit
 from audioshield.reliance.metrics import (
     alignment,
     fit_inlp,
@@ -60,6 +94,14 @@ RUNS = ("e007_A_fresh", "e007_B_fresh", "e007_C_xlsr_fresh")
 # fails loudly rather than silently returning a wrong vector.
 CANDIDATE_W_KEYS = ("binary.fc.weight", "spoof_head.weight", "head.fc.weight", "classifier.weight")
 CANDIDATE_B_KEYS = ("binary.fc.bias", "spoof_head.bias", "head.fc.bias", "classifier.bias")
+
+# The learned layer-weighting logits' key in the checkpoint's model state dict.
+# Confirmed from source: AudioShieldX.ssl (src/audioshield/models/detector.py)
+# is a LayerWeightedSSL (src/audioshield/models/ssl_backbone.py), which owns
+# `self.layer_logits = nn.Parameter(...)` directly -- standard nn.Module
+# state-dict naming gives "ssl.layer_logits", the same attr-path convention
+# CANDIDATE_W_KEYS's "binary.fc.weight" already relies on.
+LAYER_LOGITS_KEY = "ssl.layer_logits"
 
 # corpus id -> raw dataset-root folder name. Used BOTH to strip the manifest
 # `path` prefix down to the cache's bare relative path, and as the embedding
@@ -132,6 +174,26 @@ def load_corpus_embeddings(cache_root: Path, corpus_dir: str, layer: int) -> tup
     return np.concatenate(all_paths), np.concatenate(all_emb, axis=0)
 
 
+def load_corpus_embeddings_all_layers(cache_root: Path, corpus_dir: str) -> tuple[np.ndarray, np.ndarray]:
+    """Load every shard_*.npz under cache_root/<corpus_dir>/ WITHOUT slicing to
+    a single layer -- used only in --layer-mode checkpoint-band, to pool per
+    checkpoint over the full set of cached hidden-state layers. Kept float16
+    (as stored on disk) to bound memory; pool_band_embeddings upcasts only the
+    much smaller pooled result, not this full array."""
+    shard_dir = cache_root / corpus_dir
+    shard_paths = sorted(shard_dir.glob("shard_*.npz"))
+    if not shard_paths:
+        raise FileNotFoundError(f"no shard_*.npz files found under {shard_dir}")
+
+    all_paths: list[np.ndarray] = []
+    all_emb: list[np.ndarray] = []
+    for shard_path in shard_paths:
+        with np.load(shard_path, allow_pickle=False) as data:
+            all_paths.append(data["paths"])
+            all_emb.append(data["emb"])
+    return np.concatenate(all_paths), np.concatenate(all_emb, axis=0)
+
+
 def join_cache_to_manifest(
     cache_paths: np.ndarray,
     cache_emb: np.ndarray,
@@ -189,13 +251,19 @@ def groups_from_column(values: np.ndarray) -> np.ndarray:
     return out
 
 
-def select_battery_rows(df: pd.DataFrame, emb: np.ndarray, spec: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def select_battery_rows(
+    df: pd.DataFrame, emb: np.ndarray, spec: dict, emb_full: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
     """Apply a battery's optional row_filter and its mandatory factor-NA
-    exclusion, then slice out (Z, factor, y, groups) for that battery.
+    exclusion, then slice out (Z, factor, y, groups, Z_full) for that battery.
 
     Rows whose factor value is "NA" are excluded from the battery (they carry
     no information about the factor being measured); row_filter (e.g.
     diffssd's openvoicev2-only accent battery) is applied first.
+
+    `emb_full` (n, L, D), when given (--layer-mode checkpoint-band only), is
+    masked identically to `emb` so Z_full stays row-aligned with Z/factor/y/
+    groups; returned as None when emb_full is None (fixed mode).
     """
     mask = np.ones(len(df), dtype=bool)
     if "row_filter" in spec:
@@ -204,10 +272,21 @@ def select_battery_rows(df: pd.DataFrame, emb: np.ndarray, spec: dict) -> tuple[
     mask &= (df[spec["factor"]] != "NA").to_numpy()
 
     Z = emb[mask]
+    Z_full = emb_full[mask] if emb_full is not None else None
     factor = df.loc[mask, spec["factor"]].to_numpy()
     y = df.loc[mask, "target"].to_numpy().astype(int)
     groups = groups_from_column(df.loc[mask, spec["grouping"]].to_numpy())
-    return Z, factor, y, groups
+    return Z, factor, y, groups, Z_full
+
+
+def pool_band_embeddings(Z_full: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """Z_full: (n, L, D) all cached hidden-state layers. weights: (L,) softmax
+    layer weights. Returns (n, D) float32: sum_l weights[l] * Z_full[:, l, :]
+    -- matches LayerWeightedSSL.forward's `(w * hs).sum(dim=0)` exactly
+    (batch-first here vs. layer-first there)."""
+    Z_full = np.asarray(Z_full, dtype=np.float32)
+    weights = np.asarray(weights, dtype=np.float32)
+    return np.tensordot(Z_full, weights, axes=([1], [0]))
 
 
 def factor_separation_score(Z_val: np.ndarray, factor_val: np.ndarray, y_val: np.ndarray, U: np.ndarray) -> float:
@@ -258,21 +337,50 @@ def _find_key(state: dict, candidates: tuple[str, ...]) -> str | None:
     return None
 
 
-def load_task_direction(ckpt_path: Path, requested_layer: int) -> dict:
-    """Load a checkpoint, extract its final linear classifier weight (the
-    task direction w) and bias, and compare its own layer-weighting config
-    against `requested_layer`.
+def _find_layer_logits_key(state: dict) -> str | None:
+    """Locate the learned layer-weighting parameter in a checkpoint's state
+    dict. Prefers the exact known key (LAYER_LOGITS_KEY); falls back to a
+    unique suffix match so a wrapping prefix (e.g. a DDP "module." prefix)
+    doesn't cause a false "not found" -- but only when exactly one key
+    matches, never an ambiguous guess among several."""
+    if LAYER_LOGITS_KEY in state:
+        return LAYER_LOGITS_KEY
+    matches = [k for k in state if k == LAYER_LOGITS_KEY or k.endswith("." + LAYER_LOGITS_KEY)]
+    return matches[0] if len(matches) == 1 else None
 
-    IMPORTANT: these e007 checkpoints use a LEARNED SOFT WEIGHTING over a
-    BAND of backbone layers (model.layer_weight_init_center /
-    model.layer_weight_init_band in the training config -- e.g. center=10,
-    band=[8,11] for both the WavLM and XLS-R model configs this project
-    uses), not a single fixed layer. `w` therefore does not, in general,
-    live in the exact coordinate space of one frozen layer's cached
-    embedding -- layer_weight_init_center is the closest available scalar
-    proxy for "the layer", and any difference from --layer (including "no
-    band info found at all") is treated as a mismatch: warned loudly and
-    recorded as w_layer_mismatch=true, never silently assumed comparable.
+
+def _uniform_band_weights(band: tuple, num_layers: int) -> np.ndarray:
+    lo, hi = max(0, int(band[0])), min(num_layers - 1, int(band[1]))
+    w = np.zeros(num_layers, dtype=np.float64)
+    w[lo:hi + 1] = 1.0 / (hi - lo + 1)
+    return w
+
+
+def load_task_direction(
+    ckpt_path: Path, requested_layer: int, layer_mode: str = "fixed", num_cache_layers: int | None = None
+) -> dict:
+    """Load a checkpoint, extract its final linear classifier weight (the
+    task direction w) and bias, and resolve how its embedding should be
+    pooled for the alignment metric specifically (see module docstring for
+    --layer-mode).
+
+    layer_mode="fixed" (unchanged prior behaviour): compares the checkpoint's
+    own layer-weighting center against `requested_layer`; any difference
+    (including "no band info found at all") is treated as a mismatch --
+    warned loudly and recorded as w_layer_mismatch=true, never silently
+    assumed comparable.
+
+    layer_mode="checkpoint-band": resolves the checkpoint's own learned
+    softmax layer weights (LAYER_LOGITS_KEY, softmax over all
+    num_cache_layers hidden states -- matching LayerWeightedSSL.forward
+    exactly, NOT restricted to the config band, since the model is free to
+    redistribute weight outside its init band during training). If that
+    parameter isn't present in the state dict, falls back to a uniform
+    average over the config's layer_weight_init_band (layer_pooling=
+    "uniform_band_fallback", loudly warned, w_layer_mismatch stays true since
+    this is an approximation of the model's actual pooling). If neither the
+    learned parameter nor a config band is available, refuses to guess and
+    raises.
     """
     sd = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     state = sd.get("model", sd) if isinstance(sd, dict) else sd
@@ -293,37 +401,81 @@ def load_task_direction(ckpt_path: Path, requested_layer: int) -> dict:
     ckpt_layer_center = model_cfg.get("layer_weight_init_center")
     ckpt_layer_band = model_cfg.get("layer_weight_init_band")
 
-    mismatch = ckpt_layer_center is None or ckpt_layer_center != requested_layer
-    if mismatch:
-        warnings.warn(
-            f"{ckpt_path.name}: checkpoint layer-weighting center is "
-            f"{ckpt_layer_center!r} (band {ckpt_layer_band!r}), not the requested "
-            f"--layer {requested_layer} -- w is NOT guaranteed comparable to this "
-            f"cached embedding layer. Recording w_layer_mismatch=true.",
-            stacklevel=2,
-        )
-        print(
-            f"[WARN] {ckpt_path.name}: layer mismatch (ckpt center={ckpt_layer_center!r}, "
-            f"band={ckpt_layer_band!r}, requested={requested_layer}) -- w_layer_mismatch=true",
-            file=sys.stderr,
+    if layer_mode == "fixed":
+        mismatch = ckpt_layer_center is None or ckpt_layer_center != requested_layer
+        if mismatch:
+            warnings.warn(
+                f"{ckpt_path.name}: checkpoint layer-weighting center is "
+                f"{ckpt_layer_center!r} (band {ckpt_layer_band!r}), not the requested "
+                f"--layer {requested_layer} -- w is NOT guaranteed comparable to this "
+                f"cached embedding layer. Recording w_layer_mismatch=true.",
+                stacklevel=2,
+            )
+            print(
+                f"[WARN] {ckpt_path.name}: layer mismatch (ckpt center={ckpt_layer_center!r}, "
+                f"band={ckpt_layer_band!r}, requested={requested_layer}) -- w_layer_mismatch=true",
+                file=sys.stderr,
+            )
+        return dict(
+            w=w, b=b, ckpt_layer_center=ckpt_layer_center, ckpt_layer_band=ckpt_layer_band,
+            layer_pooling="fixed_layer", band_weights=None, w_layer_mismatch=bool(mismatch),
         )
 
+    # layer_mode == "checkpoint-band"
+    if num_cache_layers is None:
+        raise ValueError("layer_mode='checkpoint-band' requires num_cache_layers (from the loaded embedding cache)")
+
+    logits_key = _find_layer_logits_key(state)
+    if logits_key is not None:
+        logits = state[logits_key].detach().float().cpu()
+        if logits.shape[0] != num_cache_layers:
+            raise RuntimeError(
+                f"{ckpt_path}: {logits_key} has {logits.shape[0]} entries but the embedding "
+                f"cache has {num_cache_layers} hidden-state layers -- cannot pool"
+            )
+        weights = torch.softmax(logits, dim=0).numpy()
+        return dict(
+            w=w, b=b, ckpt_layer_center=ckpt_layer_center, ckpt_layer_band=ckpt_layer_band,
+            layer_pooling="learned_softmax", band_weights=weights, w_layer_mismatch=False,
+        )
+
+    if ckpt_layer_band is None:
+        raise RuntimeError(
+            f"{ckpt_path}: --layer-mode checkpoint-band requested but no learned layer-weight "
+            f"parameter ({LAYER_LOGITS_KEY!r}) found in the state dict, and no "
+            f"layer_weight_init_band in cfg to fall back to -- refusing to guess"
+        )
+    warnings.warn(
+        f"{ckpt_path.name}: no learned layer-weight parameter ({LAYER_LOGITS_KEY!r}) found in "
+        f"the state dict -- falling back to a uniform average over the config band "
+        f"{ckpt_layer_band!r}. This is NOT the model's actual learned pooling; alignment computed "
+        f"under this checkpoint is an approximation. Recording w_layer_mismatch=true.",
+        stacklevel=2,
+    )
+    print(
+        f"[WARN] {ckpt_path.name}: {LAYER_LOGITS_KEY!r} not found -- uniform_band_fallback over "
+        f"band {ckpt_layer_band!r}",
+        file=sys.stderr,
+    )
+    weights = _uniform_band_weights(ckpt_layer_band, num_cache_layers)
     return dict(
-        w=w, b=b,
-        ckpt_layer_center=ckpt_layer_center,
-        ckpt_layer_band=ckpt_layer_band,
-        w_layer_mismatch=bool(mismatch),
+        w=w, b=b, ckpt_layer_center=ckpt_layer_center, ckpt_layer_band=ckpt_layer_band,
+        layer_pooling="uniform_band_fallback", band_weights=weights, w_layer_mismatch=True,
     )
 
 
-def load_all_checkpoints(ckpt_dir: Path, runs: tuple[str, ...], requested_layer: int) -> dict[str, dict]:
+def load_all_checkpoints(
+    ckpt_dir: Path, runs: tuple[str, ...], requested_layer: int,
+    layer_mode: str = "fixed", num_cache_layers: int | None = None,
+) -> dict[str, dict]:
     out = {}
     for run in runs:
         ckpt_path = ckpt_dir / f"runs_{run}_best.pt"
         if not ckpt_path.exists():
             print(f"[WARN] {ckpt_path}: not found -- skipping this checkpoint", file=sys.stderr)
             continue
-        out[run] = load_task_direction(ckpt_path, requested_layer)
+        out[run] = load_task_direction(ckpt_path, requested_layer, layer_mode=layer_mode,
+                                        num_cache_layers=num_cache_layers)
     return out
 
 
@@ -343,7 +495,7 @@ def _make_fit_subspace(estimator: str, seed: int) -> Callable:
     return fit_subspace
 
 
-def _make_effect_fn(checkpoints: dict[str, dict], seed: int, n_random: int) -> Callable:
+def _make_effect_fn(checkpoints: dict[str, dict], seed: int, n_random: int, layer_mode: str = "fixed") -> Callable:
     def effect_fn(Z_eff, factor_eff, y_eff, U):
         out: dict = {"per_checkpoint": {}}
         Sigma = np.atleast_2d(np.cov(Z_eff, rowvar=False)) if len(Z_eff) > 1 else np.eye(Z_eff.shape[1])
@@ -357,13 +509,19 @@ def _make_effect_fn(checkpoints: dict[str, dict], seed: int, n_random: int) -> C
                 n_random=n_random, seed=seed,
             )
             out["per_checkpoint"][run] = dict(
-                alignment=alignment(w, U),
+                # In checkpoint-band mode, U here is fit on the shared --layer
+                # embedding while w lives in the checkpoint's own pooled
+                # space -- comparing them would be exactly the mismatched-
+                # representation bug this mode exists to fix, so alignment is
+                # left for _recompute_band_alignment's post-processing pass.
+                alignment=(alignment(w, U) if layer_mode == "fixed" else None),
                 r_var=r_var(w, U, Sigma),
                 r_var_class_conditional=r_var_class_conditional(w, U, Z_eff, y_eff),
                 prediction_change=pc,
                 prediction_change_control=pc_control,
                 w_layer_mismatch=ck["w_layer_mismatch"],
                 ckpt_layer_center=ck["ckpt_layer_center"],
+                layer_pooling=ck.get("layer_pooling", "fixed_layer"),
             )
 
         # checkpoint-independent: LEACE / INLP erasure quality, each fit and
@@ -416,6 +574,52 @@ def _make_effect_fn(checkpoints: dict[str, dict], seed: int, n_random: int) -> C
     return effect_fn
 
 
+def _recompute_band_alignment(
+    fold_results: list[dict],
+    Z_full: np.ndarray,
+    factor: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    checkpoints: dict[str, dict],
+    fit_subspace: Callable,
+    n_outer: int,
+    seed: int,
+) -> None:
+    """--layer-mode checkpoint-band only: for each fold and each checkpoint,
+    refit a subspace in THAT checkpoint's own band-pooled embedding space
+    (never the shared --layer space) and overwrite that fold's `alignment`
+    entry in place, so alignment(w, U) compares w and U in the same
+    representation.
+
+    Reuses the rank already chosen by the shared --layer nested-crossfit run
+    for that fold (the estimator/rank choice is shared across the metric
+    suite; only the embedding space differs for alignment) and reconstructs
+    the exact same outer folds run_nested_crossfit used internally --
+    deterministic given the same (n, groups, n_outer_splits, seed), so this
+    never touches a fold's effect rows, only its selection rows.
+    """
+    outer_folds = make_nested_folds(len(y), groups, n_splits=n_outer, seed=seed)
+    by_id = {fr["fold_id"]: fr for fr in fold_results}
+    for fold in outer_folds:
+        assert_no_group_leakage(fold, groups)
+        fr = by_id.get(fold.fold_id)
+        if fr is None:
+            continue
+        k = fr["chosen"]["k"]
+        sel = fold.selection_idx
+        for run, ck in checkpoints.items():
+            per_ck = fr["effect"]["per_checkpoint"].get(run)
+            if per_ck is None:
+                continue
+            Z_band_sel = pool_band_embeddings(Z_full[sel], ck["band_weights"])
+            try:
+                U_band = fit_subspace(Z_band_sel, factor[sel], y[sel], groups[sel], k=k)
+                per_ck["alignment"] = alignment(ck["w"], U_band)
+            except ValueError as e:
+                per_ck["alignment"] = float("nan")
+                per_ck["alignment_error"] = str(e)
+
+
 def run_battery(
     spec: dict,
     Z: np.ndarray,
@@ -426,6 +630,8 @@ def run_battery(
     ranks: list[int],
     n_boot: int,
     seed: int,
+    layer_mode: str = "fixed",
+    Z_full: np.ndarray | None = None,
 ) -> dict:
     n_levels = int(len(np.unique(factor)))
     valid_ranks = ranks_for_n_levels(list(ranks), n_levels)
@@ -437,6 +643,7 @@ def run_battery(
         n_rows=int(len(y)), n_levels=n_levels, n_groups=n_groups,
         grouping_degenerate=grouping_degenerate,
         ranks_requested=list(ranks), ranks_valid=valid_ranks,
+        layer_mode=layer_mode,
     )
     if grouping_degenerate:
         print(f"[WARN] battery {spec['name']}: grouping column == factor column "
@@ -454,13 +661,12 @@ def run_battery(
     for estimator in ("lda", "probe"):
         fit_subspace = _make_fit_subspace(estimator, seed)
         candidates = [{"k": r} for r in valid_ranks]
-        effect_fn = _make_effect_fn(checkpoints, seed, n_random=20)
+        effect_fn = _make_effect_fn(checkpoints, seed, n_random=20, layer_mode=layer_mode)
         try:
             fold_results = run_nested_crossfit(
                 Z, factor, y, groups, candidates, fit_subspace, factor_separation_score, effect_fn,
                 n_outer_splits=n_outer, n_inner_splits=min(3, n_outer), seed=seed,
             )
-            estimators[estimator] = dict(fold_results=fold_results)
         except ValueError as e:
             # Most likely cause: grouping_degenerate (grouping column == factor
             # column, or otherwise every group carries exactly one factor level)
@@ -472,6 +678,17 @@ def run_battery(
             print(f"[WARN] battery {spec['name']}: estimator={estimator} failed "
                   f"({e}); recording as an error, not crashing the run", file=sys.stderr)
             estimators[estimator] = dict(fold_results=[], error=str(e))
+            continue
+
+        if layer_mode == "checkpoint-band" and Z_full is not None and checkpoints:
+            try:
+                _recompute_band_alignment(fold_results, Z_full, factor, y, groups, checkpoints,
+                                           fit_subspace, n_outer, seed)
+            except Exception as e:
+                print(f"[WARN] battery {spec['name']}: estimator={estimator} band-alignment "
+                      f"recompute failed ({e})", file=sys.stderr)
+
+        estimators[estimator] = dict(fold_results=fold_results)
 
     # grouped bootstrap CI + rank-sensitivity curve on a single headline metric
     # (mean r_var across checkpoints, LDA estimator at the smallest valid rank --
@@ -578,6 +795,14 @@ def main(argv=None) -> None:
     ap.add_argument("--n-boot", type=int, default=1000)
     ap.add_argument("--seed", type=int, default=13)
     ap.add_argument("--ckpt-dir", default=str(CKPT_DIR))
+    ap.add_argument(
+        "--layer-mode", choices=["fixed", "checkpoint-band"], default="fixed",
+        help="fixed (default): alignment uses the single --layer embedding, same as every other "
+             "metric -- unchanged prior behaviour. checkpoint-band: alignment additionally refits "
+             "its subspace in each checkpoint's own learned softmax-pooled multi-layer embedding "
+             "space, so it compares w and U in the same representation; all other metrics still "
+             "use --layer regardless of this flag.",
+    )
     args = ap.parse_args(argv)
 
     out_path = Path(args.out) if args.out else Path(f"analysis/step3/reliance_layer{args.layer}.json")
@@ -592,34 +817,63 @@ def main(argv=None) -> None:
     if not batteries:
         raise ValueError(f"--corpus/--factor filters matched 0 of {len(BATTERIES)} batteries")
 
-    print(f"[run_reliance_battery] layer={args.layer} ranks={args.ranks} seed={args.seed} "
-          f"batteries={[b['name'] for b in batteries]}")
+    print(f"[run_reliance_battery] layer={args.layer} layer_mode={args.layer_mode} ranks={args.ranks} "
+          f"seed={args.seed} batteries={[b['name'] for b in batteries]}")
 
-    checkpoints = load_all_checkpoints(Path(args.ckpt_dir), RUNS, args.layer)
-    if not checkpoints:
-        print("[WARN] no checkpoints loaded -- w-dependent metrics will be empty", file=sys.stderr)
-
+    # Corpus data is loaded before checkpoints: in checkpoint-band mode, the
+    # checkpoints' learned layer-weighting parameter must be softmaxed over
+    # exactly as many entries as the embedding cache actually has hidden-state
+    # layers -- that count (num_cache_layers) is only known once real shards
+    # are read, never hardcoded.
     corpora_needed = sorted({b["corpus"] for b in batteries})
     corpus_data: dict[str, dict] = {}
     join_stats: dict[str, dict] = {}
+    num_cache_layers: int | None = None
     for corpus in corpora_needed:
         corpus_dir = CORPUS_DIR[corpus]
         manifest_rows = read_manifest(manifest_dir / f"{corpus}.csv")
         manifest_df = pd.DataFrame([asdict(r) for r in manifest_rows])
         cache_paths, cache_emb = load_corpus_embeddings(cache_root, corpus_dir, args.layer)
         joined_df, joined_emb, stats = join_cache_to_manifest(cache_paths, cache_emb, manifest_df, corpus_dir)
-        corpus_data[corpus] = dict(df=joined_df, emb=joined_emb)
+
+        emb_full = None
+        if args.layer_mode == "checkpoint-band":
+            cache_paths_full, cache_emb_full = load_corpus_embeddings_all_layers(cache_root, corpus_dir)
+            joined_df_full, joined_emb_full, _ = join_cache_to_manifest(
+                cache_paths_full, cache_emb_full, manifest_df, corpus_dir
+            )
+            if len(joined_df_full) != len(joined_df) or not (
+                joined_df_full["utt_id"].to_numpy() == joined_df["utt_id"].to_numpy()
+            ).all():
+                raise AssertionError(
+                    f"{corpus}: fixed-layer join and all-layers join disagree on row set/order -- "
+                    f"cannot align band-pooled embeddings to the main embedding matrix"
+                )
+            emb_full = joined_emb_full
+            if num_cache_layers is None:
+                num_cache_layers = cache_emb_full.shape[1]
+            elif num_cache_layers != cache_emb_full.shape[1]:
+                raise ValueError(f"{corpus}: cache has {cache_emb_full.shape[1]} hidden-state layers, "
+                                  f"expected {num_cache_layers} (mismatched across corpora)")
+
+        corpus_data[corpus] = dict(df=joined_df, emb=joined_emb, emb_full=emb_full)
         join_stats[corpus] = stats
         print(f"[join] {corpus}: n_cache={stats['n_cache']} n_manifest={stats['n_manifest']} "
               f"n_joined={stats['n_joined']} n_dropped={stats['n_dropped']}")
 
+    checkpoints = load_all_checkpoints(Path(args.ckpt_dir), RUNS, args.layer,
+                                        layer_mode=args.layer_mode, num_cache_layers=num_cache_layers)
+    if not checkpoints:
+        print("[WARN] no checkpoints loaded -- w-dependent metrics will be empty", file=sys.stderr)
+
     battery_results = []
     for spec in batteries:
-        df, emb = corpus_data[spec["corpus"]]["df"], corpus_data[spec["corpus"]]["emb"]
-        Z, factor, y, groups = select_battery_rows(df, emb, spec)
+        cd = corpus_data[spec["corpus"]]
+        Z, factor, y, groups, Z_full = select_battery_rows(cd["df"], cd["emb"], spec, emb_full=cd["emb_full"])
 
         print(f"[battery] {spec['name']}: n_rows={len(y)} n_levels={len(np.unique(factor))}")
-        res = run_battery(spec, Z, factor, y, groups, checkpoints, args.ranks, args.n_boot, args.seed)
+        res = run_battery(spec, Z, factor, y, groups, checkpoints, args.ranks, args.n_boot, args.seed,
+                           layer_mode=args.layer_mode, Z_full=Z_full)
         battery_results.append(res)
 
     prereg = [summarize_prereg_candidate(r) for r in battery_results]
@@ -629,9 +883,11 @@ def main(argv=None) -> None:
         git_sha=_git_sha(),
         timestamp=datetime.now(timezone.utc).isoformat(),
         layer=args.layer,
+        layer_mode=args.layer_mode,
         seed=args.seed,
         join_stats=join_stats,
         checkpoints={run: dict(ckpt_layer_center=ck["ckpt_layer_center"], ckpt_layer_band=ck["ckpt_layer_band"],
+                                layer_pooling=ck["layer_pooling"], band_weights=ck["band_weights"],
                                 w_layer_mismatch=ck["w_layer_mismatch"]) for run, ck in checkpoints.items()},
         batteries=battery_results,
         prereg_candidates=prereg,

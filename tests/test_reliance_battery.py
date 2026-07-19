@@ -13,10 +13,14 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from run_reliance_battery import (  # noqa: E402
+    LAYER_LOGITS_KEY,
+    _find_layer_logits_key,
+    _uniform_band_weights,
     groups_from_column,
     join_cache_to_manifest,
     load_corpus_embeddings,
     load_task_direction,
+    pool_band_embeddings,
     ranks_for_n_levels,
     run_battery,
     select_battery_rows,
@@ -96,8 +100,9 @@ def test_select_battery_rows_excludes_na_factor_rows():
     emb = np.arange(4 * 3).reshape(4, 3).astype(np.float32)
     spec = dict(factor="generator_id", grouping="source_id", corpus="diffssd")
 
-    Z, factor, y, groups = select_battery_rows(df, emb, spec)
+    Z, factor, y, groups, Z_full = select_battery_rows(df, emb, spec)
 
+    assert Z_full is None
     assert len(Z) == 3
     assert "NA" not in factor
     assert list(factor) == ["a", "b", "a"]
@@ -117,11 +122,29 @@ def test_select_battery_rows_applies_row_filter_before_na_exclusion():
     spec = dict(factor="language", grouping="speaker_id", corpus="diffssd",
                 row_filter=("generator_id", "openvoicev2"))
 
-    Z, factor, y, groups = select_battery_rows(df, emb, spec)
+    Z, factor, y, groups, Z_full = select_battery_rows(df, emb, spec)
 
     # row 1 (gradtts) excluded by row_filter; row 2 (openvoicev2 but language=NA) excluded by NA rule
     assert len(Z) == 2
     assert list(factor) == ["en-au", "en-us"]
+
+
+def test_select_battery_rows_masks_emb_full_identically_to_emb():
+    df = pd.DataFrame({
+        "generator_id": ["a", "NA", "b", "a"],
+        "target": [1, 1, 0, 1],
+        "source_id": ["s1", "s2", "NA", "s1"],
+    })
+    emb = np.arange(4 * 3).reshape(4, 3).astype(np.float32)
+    emb_full = np.arange(4 * 2 * 3).reshape(4, 2, 3).astype(np.float32)
+    spec = dict(factor="generator_id", grouping="source_id", corpus="diffssd")
+
+    Z, factor, y, groups, Z_full = select_battery_rows(df, emb, spec, emb_full=emb_full)
+
+    assert Z_full.shape == (3, 2, 3)
+    np.testing.assert_array_equal(Z_full[0], emb_full[0])
+    np.testing.assert_array_equal(Z_full[1], emb_full[2])
+    np.testing.assert_array_equal(Z_full[2], emb_full[3])
 
 
 def test_groups_from_column_replaces_na_with_unique_tokens():
@@ -242,6 +265,120 @@ def test_load_task_direction_mismatch_when_no_layer_info_present(tmp_path):
     assert out["ckpt_layer_center"] is None
 
 
+def test_load_task_direction_fixed_mode_default_matches_explicit(tmp_path):
+    """layer_mode defaults to "fixed" -- must be byte-for-byte the same call
+    as passing layer_mode="fixed" explicitly (Roadmap: "fixed mode output
+    unchanged from before")."""
+    ckpt = tmp_path / "runs_e007_A_fresh_best.pt"
+    _write_checkpoint(ckpt, layer_center=10)
+    out_default = load_task_direction(ckpt, requested_layer=9)
+    out_explicit = load_task_direction(ckpt, requested_layer=9, layer_mode="fixed")
+    assert out_default["w_layer_mismatch"] == out_explicit["w_layer_mismatch"] is True
+    assert out_default["ckpt_layer_center"] == out_explicit["ckpt_layer_center"] == 10
+    assert out_default["layer_pooling"] == out_explicit["layer_pooling"] == "fixed_layer"
+    assert out_default["band_weights"] is out_explicit["band_weights"] is None
+    np.testing.assert_array_equal(out_default["w"], out_explicit["w"])
+
+
+# ---------------------------------------------------------------------------
+# checkpoint-band pooling: learned-softmax layer weights, uniform fallback
+# ---------------------------------------------------------------------------
+
+
+def _write_checkpoint_with_layer_logits(path: Path, logits, layer_center=10, layer_band=(8, 11), key=LAYER_LOGITS_KEY):
+    sd = dict(
+        model={"binary.fc.weight": torch.randn(1, 32), "binary.fc.bias": torch.randn(1),
+               key: torch.as_tensor(logits, dtype=torch.float32)},
+        cfg={"model": {"layer_weight_init_center": layer_center, "layer_weight_init_band": list(layer_band)}},
+    )
+    torch.save(sd, path)
+
+
+def test_find_layer_logits_key_exact_match():
+    state = {LAYER_LOGITS_KEY: torch.zeros(5), "binary.fc.weight": torch.zeros(1)}
+    assert _find_layer_logits_key(state) == LAYER_LOGITS_KEY
+
+
+def test_find_layer_logits_key_suffix_fallback_when_wrapped():
+    state = {f"module.{LAYER_LOGITS_KEY}": torch.zeros(5)}
+    assert _find_layer_logits_key(state) == f"module.{LAYER_LOGITS_KEY}"
+
+
+def test_find_layer_logits_key_returns_none_when_absent():
+    state = {"binary.fc.weight": torch.zeros(1)}
+    assert _find_layer_logits_key(state) is None
+
+
+def test_find_layer_logits_key_returns_none_when_ambiguous():
+    state = {f"a.{LAYER_LOGITS_KEY}": torch.zeros(5), f"b.{LAYER_LOGITS_KEY}": torch.zeros(5)}
+    assert _find_layer_logits_key(state) is None
+
+
+def test_uniform_band_weights_matches_manual_computation():
+    w = _uniform_band_weights((8, 11), num_layers=25)
+    assert w.shape == (25,)
+    np.testing.assert_allclose(w.sum(), 1.0)
+    assert np.all(w[8:12] == pytest.approx(0.25))
+    assert np.all(w[:8] == 0.0) and np.all(w[12:] == 0.0)
+
+
+def test_load_task_direction_checkpoint_band_uses_learned_softmax(tmp_path):
+    ckpt = tmp_path / "runs_e007_A_fresh_best.pt"
+    logits = torch.tensor([-10.0] * 8 + [1.0, 3.0, 2.0] + [-10.0] * 14)  # length 25, concentrated at 8-10
+    _write_checkpoint_with_layer_logits(ckpt, logits)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # learned_softmax path must NOT warn
+        out = load_task_direction(ckpt, requested_layer=9, layer_mode="checkpoint-band", num_cache_layers=25)
+    assert out["layer_pooling"] == "learned_softmax"
+    assert out["w_layer_mismatch"] is False
+    expected = torch.softmax(logits, dim=0).numpy()
+    np.testing.assert_allclose(out["band_weights"], expected, atol=1e-6)
+    assert out["band_weights"].sum() == pytest.approx(1.0)
+
+
+def test_load_task_direction_checkpoint_band_falls_back_to_uniform_with_warning(tmp_path):
+    ckpt = tmp_path / "runs_e007_B_fresh_best.pt"
+    _write_checkpoint(ckpt, layer_center=10, layer_band=(8, 11))  # no layer_logits key at all
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        out = load_task_direction(ckpt, requested_layer=9, layer_mode="checkpoint-band", num_cache_layers=25)
+    assert out["layer_pooling"] == "uniform_band_fallback"
+    assert out["w_layer_mismatch"] is True
+    np.testing.assert_allclose(out["band_weights"], _uniform_band_weights((8, 11), 25))
+    assert any("uniform" in str(w.message).lower() for w in caught)
+
+
+def test_load_task_direction_checkpoint_band_raises_when_nothing_to_fall_back_to(tmp_path):
+    ckpt = tmp_path / "no_band.pt"
+    torch.save(dict(model={"binary.fc.weight": torch.randn(1, 16)}, cfg={}), ckpt)
+    with pytest.raises(RuntimeError, match="refusing to guess"):
+        load_task_direction(ckpt, requested_layer=9, layer_mode="checkpoint-band", num_cache_layers=25)
+
+
+def test_load_task_direction_checkpoint_band_raises_on_logits_length_mismatch(tmp_path):
+    ckpt = tmp_path / "runs_e007_C_xlsr_fresh_best.pt"
+    _write_checkpoint_with_layer_logits(ckpt, torch.zeros(13))  # 13 != num_cache_layers=25
+    with pytest.raises(RuntimeError, match="entries"):
+        load_task_direction(ckpt, requested_layer=9, layer_mode="checkpoint-band", num_cache_layers=25)
+
+
+# ---------------------------------------------------------------------------
+# pool_band_embeddings
+# ---------------------------------------------------------------------------
+
+
+def test_pool_band_embeddings_matches_weighted_sum():
+    rng = np.random.default_rng(3)
+    Z_full = rng.standard_normal((5, 4, 3)).astype(np.float32)  # (n=5, L=4, D=3)
+    weights = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
+
+    pooled = pool_band_embeddings(Z_full, weights)
+
+    expected = sum(weights[l] * Z_full[:, l, :] for l in range(4))
+    np.testing.assert_allclose(pooled, expected, atol=1e-5)
+    assert pooled.shape == (5, 3)
+
+
 # ---------------------------------------------------------------------------
 # every removal metric has a matching control entry
 # ---------------------------------------------------------------------------
@@ -274,7 +411,8 @@ def synthetic_battery_data():
     factor = np.array([f"gen{i}" for i in factor_levels], dtype=object)
     groups = np.array([f"grp{i}" for i in groups_raw], dtype=object)
     checkpoints = {
-        "e007_A_fresh": dict(w=w_true, b=0.0, ckpt_layer_center=10, ckpt_layer_band=[8, 11], w_layer_mismatch=True),
+        "e007_A_fresh": dict(w=w_true, b=0.0, ckpt_layer_center=10, ckpt_layer_band=[8, 11],
+                              layer_pooling="fixed_layer", band_weights=None, w_layer_mismatch=True),
     }
     return dict(Z=Z, factor=factor, y=y, groups=groups, checkpoints=checkpoints)
 
@@ -333,3 +471,141 @@ def test_run_battery_skips_when_no_rank_survives_capping(synthetic_battery_data)
         ranks=[5, 8], n_boot=10, seed=13,  # both > n_levels-1 == 1
     )
     assert "skipped" in result
+
+
+def test_run_battery_fixed_mode_still_computes_alignment_inline(synthetic_battery_data):
+    """Roadmap: "fixed mode output unchanged from before" -- alignment must
+    still be populated directly by the main crossfit run (not left null for
+    a post-processing pass that only exists in checkpoint-band mode)."""
+    d = synthetic_battery_data
+    spec = dict(name="fixed_mode_test", corpus="diffssd", factor="generator_id", grouping="source_id")
+    result = run_battery(
+        spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
+        ranks=[1, 2], n_boot=10, seed=13,  # layer_mode defaults to "fixed"
+    )
+    assert result["layer_mode"] == "fixed"
+    for estimator_result in result["estimators"].values():
+        for fold in estimator_result["fold_results"]:
+            per_ck = fold["effect"]["per_checkpoint"]["e007_A_fresh"]
+            assert per_ck["alignment"] is not None
+            assert np.isfinite(per_ck["alignment"])
+
+
+# ---------------------------------------------------------------------------
+# checkpoint-band mode: alignment recovers the TRUE task/factor geometry even
+# when --layer points at a differently-rotated ("wrong") representation
+# ---------------------------------------------------------------------------
+
+
+def _random_orthogonal(dim, seed):
+    rng = np.random.default_rng(seed)
+    Q, _ = np.linalg.qr(rng.normal(size=(dim, dim)))
+    return Q
+
+
+@pytest.fixture
+def band_pooling_fixture():
+    rng = np.random.default_rng(21)
+    d, n, k_factor, n_groups, n_cache_layers = 12, 300, 2, 40, 3
+
+    w_true = rng.normal(size=d)
+    w_true /= np.linalg.norm(w_true)
+    M = rng.normal(size=(d, k_factor))
+    Uo, _, _ = np.linalg.svd(M, full_matrices=False)
+    U_true = Uo[:, :k_factor]
+
+    # Force a KNOWN alignment between w_true and U_true's span, so the test
+    # has a ground truth to check the recovered value against.
+    target_alignment = 0.5
+    u_part = U_true @ (U_true.T @ w_true)
+    u_part /= np.linalg.norm(u_part)
+    perp = w_true - U_true @ (U_true.T @ w_true)
+    perp /= np.linalg.norm(perp)
+    w_true = np.sqrt(target_alignment) * u_part + np.sqrt(1 - target_alignment) * perp
+    w_true /= np.linalg.norm(w_true)
+    assert abs(float(np.sum((U_true.T @ w_true) ** 2)) - target_alignment) < 1e-9
+
+    groups_raw = rng.integers(0, n_groups, size=n)
+    y = rng.integers(0, 2, size=n)
+    factor_levels = rng.integers(0, 4, size=n)
+    raw_centers = rng.normal(size=(4, k_factor))
+    raw_centers -= raw_centers.mean(axis=0, keepdims=True)
+    Uc, Sc, Vtc = np.linalg.svd(raw_centers, full_matrices=False)
+    factor_centers = Uc @ np.diag(np.full_like(Sc, 3.0)) @ Vtc
+
+    L = (np.outer((y * 2 - 1).astype(float), w_true) * 3.0
+         + factor_centers[factor_levels] @ U_true.T
+         + rng.normal(scale=0.3, size=(n, d)))
+
+    # Layer 1 is the checkpoint's dominant pooling layer: a clean (identity)
+    # view of the underlying task/factor geometry. Layers 0 and 2 are
+    # independently rotated -- "a different learned representation", standing
+    # in for a --layer choice whose coordinate frame does not match where w
+    # was learned (exactly the real e007 scenario: layer 9 vs. the pooled
+    # band around layer 10).
+    R0, R2 = _random_orthogonal(d, seed=101), _random_orthogonal(d, seed=102)
+    emb_full = np.zeros((n, n_cache_layers, d), dtype=np.float32)
+    emb_full[:, 0, :] = L @ R0 + rng.normal(scale=0.3, size=(n, d))
+    emb_full[:, 1, :] = L
+    emb_full[:, 2, :] = L @ R2 + rng.normal(scale=0.3, size=(n, d))
+
+    factor = np.array([f"gen{i}" for i in factor_levels], dtype=object)
+    groups = np.array([f"grp{i}" for i in groups_raw], dtype=object)
+
+    logits = torch.tensor([-10.0, 0.0, -10.0])  # softmax concentrates on layer 1
+    band_weights = torch.softmax(logits, dim=0).numpy()
+    checkpoints = {
+        "e007_A_fresh": dict(
+            w=w_true, b=0.0, ckpt_layer_center=10, ckpt_layer_band=[8, 11],
+            layer_pooling="learned_softmax", band_weights=band_weights, w_layer_mismatch=False,
+        ),
+    }
+    return dict(emb_full=emb_full, factor=factor, y=y, groups=groups, checkpoints=checkpoints,
+                target_alignment=target_alignment)
+
+
+def test_run_battery_checkpoint_band_alignment_recovers_true_geometry(band_pooling_fixture):
+    d = band_pooling_fixture
+    Z_full = d["emb_full"]
+    Z_layer0 = Z_full[:, 0, :].astype(np.float32)  # simulate --layer=0: a rotated, mismatched representation
+    spec = dict(name="band_test", corpus="diffssd", factor="generator_id", grouping="source_id")
+
+    result = run_battery(
+        spec, Z_layer0, d["factor"], d["y"], d["groups"], d["checkpoints"],
+        ranks=[2], n_boot=10, seed=13, layer_mode="checkpoint-band", Z_full=Z_full,
+    )
+
+    aligns = []
+    for estimator_result in result["estimators"].values():
+        for fold in estimator_result["fold_results"]:
+            per_ck = fold["effect"]["per_checkpoint"]["e007_A_fresh"]
+            assert per_ck["alignment"] is not None
+            assert np.isfinite(per_ck["alignment"])
+            assert per_ck["layer_pooling"] == "learned_softmax"
+            aligns.append(per_ck["alignment"])
+
+    assert aligns
+    mean_align = float(np.mean(aligns))
+    # Recovers close to the true 0.5 despite --layer being a rotated/
+    # mismatched representation, because alignment is refit in the
+    # checkpoint's own (unrotated, layer-1-dominant) pooled space.
+    assert abs(mean_align - d["target_alignment"]) < 0.3
+
+
+def test_run_battery_fixed_mode_leaves_alignment_none_semantics_unaffected(band_pooling_fixture):
+    """Sanity check that checkpoint-band-only fixture data still behaves
+    correctly under plain fixed mode (alignment computed inline, no crash,
+    regardless of which layer is picked)."""
+    d = band_pooling_fixture
+    Z_layer0 = d["emb_full"][:, 0, :].astype(np.float32)
+    spec = dict(name="band_test_fixed", corpus="diffssd", factor="generator_id", grouping="source_id")
+
+    result = run_battery(
+        spec, Z_layer0, d["factor"], d["y"], d["groups"], d["checkpoints"],
+        ranks=[2], n_boot=10, seed=13,  # layer_mode defaults to "fixed", Z_full omitted
+    )
+    for estimator_result in result["estimators"].values():
+        for fold in estimator_result["fold_results"]:
+            per_ck = fold["effect"]["per_checkpoint"]["e007_A_fresh"]
+            assert per_ck["alignment"] is not None
+            assert np.isfinite(per_ck["alignment"])
