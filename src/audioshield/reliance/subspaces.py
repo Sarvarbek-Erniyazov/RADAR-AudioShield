@@ -24,6 +24,8 @@ throughout").
 """
 from __future__ import annotations
 
+import hashlib
+
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold
@@ -37,6 +39,58 @@ MODES = ("within_class", "covariate")
 def _check_mode(mode: str) -> None:
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+
+
+# ---------------------------------------------------------------------------
+# Rank-independent computation cache: lda_subspace's Sb/Sw/eigh solve and
+# crossfitted_probe_subspace's cross-fitted coefficient rows do NOT depend
+# on the requested rank k -- only the final top-k slice/orthonormalization
+# does. Both run_nested_crossfit's per-candidate hyperparameter search and
+# run_battery's rank-sensitivity sweep call these with the SAME (Z, factor,
+# y, ...) but DIFFERENT k, so a process-local cache turns "decompose N
+# times" into "decompose once, slice top-k per rank" (Roadmap Step 3
+# robustness fix) with zero change to any returned value -- purely a
+# shared-computation optimization. Process-local and small: correct given
+# each battery task runs in its own freshly-spawned worker process (see
+# scripts/run_reliance_battery.py), so this never persists or grows across
+# batteries/tasks; cleared explicitly between tests (tests/conftest.py) so
+# unrelated test functions that happen to build identical synthetic data
+# never see a hit from each other.
+_SUBSPACE_CACHE: dict = {}
+_SUBSPACE_CACHE_MAX_ENTRIES = 64
+
+
+def clear_subspace_cache() -> None:
+    """Reset the rank-independent computation cache. Safe to call anytime;
+    only affects performance (forces recomputation), never correctness."""
+    _SUBSPACE_CACHE.clear()
+
+
+def _content_key(*parts) -> str:
+    """Fast, collision-resistant cache key for a mix of numpy arrays and
+    scalars. Content-hash-based, not id()-based: id() can alias after
+    garbage collection (a freed array's memory address can be reused by an
+    unrelated array), which would silently reuse a stale result computed
+    from different data -- a content hash cannot."""
+    h = hashlib.blake2b(digest_size=16)
+    for p in parts:
+        if isinstance(p, np.ndarray):
+            h.update(b"arr")
+            h.update(str(p.shape).encode())
+            h.update(np.ascontiguousarray(p).tobytes())
+        else:
+            h.update(repr(p).encode())
+    return h.hexdigest()
+
+
+def _cache_get_or_compute(key: str, compute_fn):
+    if key in _SUBSPACE_CACHE:
+        return _SUBSPACE_CACHE[key]
+    value = compute_fn()
+    if len(_SUBSPACE_CACHE) >= _SUBSPACE_CACHE_MAX_ENTRIES:
+        _SUBSPACE_CACHE.pop(next(iter(_SUBSPACE_CACHE)))  # crude FIFO eviction
+    _SUBSPACE_CACHE[key] = value
+    return value
 
 
 def _residualize_by_class(Z: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -122,34 +176,42 @@ def lda_subspace(
     scaler = StandardScaler()
     Z = scaler.fit_transform(Z)
 
-    if mode == "covariate":
-        Z_resid = _residualize_by_class(Z, y)
-        Sb, Sw, n_usable = _between_within_scatter(Z_resid, factor)
-    else:
-        Sb = np.zeros((d, d))
-        Sw = np.zeros((d, d))
-        n_usable = 0
-        for c in np.unique(y):
-            m = y == c
-            if m.sum() < 4:
-                continue
-            sb_c, sw_c, u_c = _between_within_scatter(Z[m], factor[m])
-            if u_c < 2:
-                continue
-            Sb += sb_c
-            Sw += sw_c
-            n_usable += u_c
+    def _compute_eigh():
+        if mode == "covariate":
+            Z_resid = _residualize_by_class(Z, y)
+            Sb, Sw, n_usable = _between_within_scatter(Z_resid, factor)
+        else:
+            Sb = np.zeros((d, d))
+            Sw = np.zeros((d, d))
+            n_usable = 0
+            for c in np.unique(y):
+                m = y == c
+                if m.sum() < 4:
+                    continue
+                sb_c, sw_c, u_c = _between_within_scatter(Z[m], factor[m])
+                if u_c < 2:
+                    continue
+                Sb += sb_c
+                Sw += sw_c
+                n_usable += u_c
 
-    if n_usable < 2:
-        raise ValueError(
-            "lda_subspace: fewer than 2 usable factor levels (>=2 members each, "
-            "within at least one class stratum for mode='within_class') -- cannot "
-            "estimate a discriminant subspace"
-        )
+        if n_usable < 2:
+            raise ValueError(
+                "lda_subspace: fewer than 2 usable factor levels (>=2 members each, "
+                "within at least one class stratum for mode='within_class') -- cannot "
+                "estimate a discriminant subspace"
+            )
 
-    from scipy.linalg import eigh  # local import: scipy is a repo dependency, keep import lazy/cheap
+        from scipy.linalg import eigh  # local import: scipy is a repo dependency, keep import lazy/cheap
+        return eigh(Sb, Sw + ridge * np.eye(d))
 
-    eigvals, eigvecs = eigh(Sb, Sw + ridge * np.eye(d))
+    # Sb/Sw/the eigensolve do not depend on k -- cache across repeated calls
+    # with the same (Z, factor, y, mode, ridge) but different k (see cache
+    # docstring above): this is exactly what the crossfit candidate-rank
+    # search and run_battery's rank-sensitivity sweep do.
+    cache_key = _content_key("lda_eigh", Z, factor, y, mode, ridge)
+    eigvals, eigvecs = _cache_get_or_compute(cache_key, _compute_eigh)
+
     order = np.argsort(eigvals)[::-1]
     top = eigvecs[:, order[:k]]
     top = top / scaler.scale_[:, None]  # map directions back to the original embedding space
@@ -249,10 +311,10 @@ def crossfitted_probe_subspace(
     factor = np.asarray(factor)
     y = np.asarray(y)
 
-    if mode == "covariate":
-        Z_use = _residualize_by_class(Z, y)
-        rows = _crossfitted_weight_rows(Z_use, factor, groups, n_splits, seed, C)
-    else:
+    def _compute_rows():
+        if mode == "covariate":
+            Z_use = _residualize_by_class(Z, y)
+            return _crossfitted_weight_rows(Z_use, factor, groups, n_splits, seed, C)
         collected = []
         for c in np.unique(y):
             m = y == c
@@ -260,11 +322,16 @@ def crossfitted_probe_subspace(
                 continue
             g_c = groups[m] if groups is not None else None
             collected.append(_crossfitted_weight_rows(Z[m], factor[m], g_c, n_splits, seed, C))
-        rows = (
+        return (
             np.concatenate([r for r in collected if r.shape[0] > 0], axis=0)
             if any(r.shape[0] > 0 for r in collected)
             else np.zeros((0, Z.shape[1]))
         )
+
+    # The cross-fitted coefficient rows do not depend on k either -- same
+    # cache, same rationale as lda_subspace above.
+    cache_key = _content_key("probe_rows", Z, factor, y, groups, mode, n_splits, seed, C)
+    rows = _cache_get_or_compute(cache_key, _compute_rows)
 
     if rows.shape[0] == 0:
         raise ValueError(

@@ -3,6 +3,7 @@ real embedding cache or checkpoints (those live on the collaborator machine)."""
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import warnings
@@ -14,25 +15,35 @@ import pytest
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import run_reliance_battery as rrb  # noqa: E402 -- needed for monkeypatching module-level names
+import run_reliance_battery as rrb  # noqa: E402 -- needed for env-var-based hang injection (see module docstring)
 from run_reliance_battery import (  # noqa: E402
     LAYER_LOGITS_KEY,
+    _battery_output_path,
     _describe_pooling_mismatch,
     _find_layer_logits_key,
-    _guarded_call,
+    _load_battery_npz,
     _not_estimable,
+    _process_rss_mb,
     _removal_control_without_task_direction,
-    _run_with_timeout,
+    _run_battery_tasks,
+    _set_single_threaded_blas_env,
     _uniform_band_weights,
+    _worker_entrypoint,
+    _write_battery_npz,
+    cap_rows_per_level,
     groups_from_column,
     join_cache_to_manifest,
     load_corpus_embeddings,
     load_task_direction,
     main,
     pool_band_embeddings,
+    project_battery_cost,
     ranks_for_n_levels,
     resolve_w_metrics,
     run_battery,
+    run_cost_gate,
+    run_cost_probe,
+    run_smoke_test,
     select_battery_rows,
     strip_cache_prefix,
     summarize_prereg_candidate,
@@ -906,85 +917,156 @@ def test_main_matched_dims_regression_guard(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# per-(battery, estimator) timeout guard: _run_with_timeout / _guarded_call
+# subprocess isolation: _write_battery_npz / _load_battery_npz round trip
 # ---------------------------------------------------------------------------
 
 
-def test_run_with_timeout_returns_value_on_success():
-    completed, value, exc = _run_with_timeout(lambda: 42, timeout=5)
-    assert (completed, value, exc) == (True, 42, None)
+def test_battery_npz_round_trip_preserves_data(tmp_path):
+    rng = np.random.default_rng(0)
+    Z = rng.standard_normal((20, 5))
+    factor = np.array([f"gen{i % 3}" for i in range(20)], dtype=object)  # object dtype, like a pandas column
+    y = rng.integers(0, 2, size=20)
+    groups = np.array([f"grp{i % 4}" for i in range(20)], dtype=object)
+
+    path = tmp_path / "battery_data.npz"
+    _write_battery_npz(path, Z, factor, y, groups)
+    Z2, factor2, y2, groups2 = _load_battery_npz(path)
+
+    np.testing.assert_allclose(Z2, Z.astype(np.float32), atol=1e-6)
+    assert list(factor2) == list(factor)
+    np.testing.assert_array_equal(y2, y)
+    assert list(groups2) == list(groups)
 
 
-def test_run_with_timeout_captures_exception_without_raising():
-    def _boom():
-        raise ValueError("boom")
+# ---------------------------------------------------------------------------
+# subprocess isolation: _run_battery_tasks / _worker_entrypoint -- real
+# worker processes, real timeouts, real kills. Replaces the old thread-
+# based _run_with_timeout/_guarded_call, which this commit removes: a
+# thread-based guard can only stop WAITING on a hung call, never stop the
+# computation itself (a real run's segfault after its thread-based timeout
+# fired is the direct evidence this was insufficient -- see module
+# docstring). A monkeypatch of a module-level function is NOT visible
+# inside a freshly-spawned worker process (Windows spawn re-imports the
+# whole module from scratch), so hang injection here uses
+# rrb._TEST_HANG_ENV_VAR instead, which crosses the process boundary via
+# the environment.
+# ---------------------------------------------------------------------------
 
-    completed, value, exc = _run_with_timeout(_boom, timeout=5)
-    assert completed is True
-    assert value is None
-    assert isinstance(exc, ValueError)
-    assert "boom" in str(exc)
+
+def _write_synthetic_battery_npz(tmp_path, seed=13, n=240, d=12, k_factor=3, n_groups=40):
+    rng = np.random.default_rng(seed)
+    w_true = rng.normal(size=d)
+    w_true /= np.linalg.norm(w_true)
+    M = rng.normal(size=(d, k_factor))
+    M = M - np.outer(w_true, w_true @ M)
+    U_true, _, _ = np.linalg.svd(M, full_matrices=False)
+    U_true = U_true[:, :k_factor]
+    groups_raw = rng.integers(0, n_groups, size=n)
+    group_offset = rng.normal(scale=0.5, size=(n_groups, d))[groups_raw]
+    y = rng.integers(0, 2, size=n)
+    factor_levels = rng.integers(0, 4, size=n)
+    raw_centers = rng.normal(size=(4, k_factor))
+    raw_centers -= raw_centers.mean(axis=0, keepdims=True)
+    Uc, Sc, Vtc = np.linalg.svd(raw_centers, full_matrices=False)
+    factor_centers = Uc @ np.diag(np.full_like(Sc, 3.0)) @ Vtc
+    Z = (np.outer((y * 2 - 1).astype(float), w_true) * 3.0
+         + factor_centers[factor_levels] @ U_true.T + group_offset + rng.normal(size=(n, d)))
+    factor = np.array([f"gen{i}" for i in factor_levels], dtype=object)
+    groups = np.array([f"grp{i}" for i in groups_raw], dtype=object)
+
+    path = tmp_path / "battery_data.npz"
+    _write_battery_npz(path, Z, factor, y, groups)
+    checkpoints = {
+        "e007_A_fresh": dict(w=w_true, b=0.0, ckpt_layer_center=10, ckpt_layer_band=[8, 11],
+                             layer_pooling="fixed_layer", band_weights=None, w_layer_mismatch=True),
+    }
+    return path, checkpoints
 
 
-def test_run_with_timeout_reports_not_completed_on_timeout():
-    def _slow():
-        time.sleep(1.0)
-        return "done"
+@pytest.fixture(autouse=True)
+def _clear_hang_injection_env(monkeypatch):
+    """Belt and suspenders: ensure no test leaks rrb._TEST_HANG_ENV_VAR into
+    a later one regardless of how it was set."""
+    monkeypatch.delenv(rrb._TEST_HANG_ENV_VAR, raising=False)
+    yield
+    monkeypatch.delenv(rrb._TEST_HANG_ENV_VAR, raising=False)
+
+
+def test_run_battery_tasks_reports_ok_on_success(tmp_path):
+    npz_path, checkpoints = _write_synthetic_battery_npz(tmp_path)
+    tasks = [("crossfit_lda", "crossfit", dict(
+        estimator="lda", seed=13, valid_ranks=[1, 2], n_outer=5, checkpoints=checkpoints,
+        layer_mode="fixed", w_metrics_enabled=True, w_metrics_reason="",
+    ))]
+    results = _run_battery_tasks(tasks, npz_path, timeout=60, log=lambda msg: None)
+    assert results["crossfit_lda"]["status"] == "ok"
+    assert results["crossfit_lda"]["timed_out"] is False
+    assert len(results["crossfit_lda"]["fold_results"]) == 5
+
+
+def test_run_battery_tasks_kills_hung_worker_and_records_timeout(tmp_path, monkeypatch):
+    monkeypatch.setenv(rrb._TEST_HANG_ENV_VAR, "crossfit_lda")
+    npz_path, checkpoints = _write_synthetic_battery_npz(tmp_path)
+    tasks = [("crossfit_lda", "crossfit", dict(
+        estimator="lda", seed=13, valid_ranks=[1, 2], n_outer=5, checkpoints=checkpoints,
+        layer_mode="fixed", w_metrics_enabled=True, w_metrics_reason="",
+    ))]
 
     start = time.time()
-    completed, value, exc = _run_with_timeout(_slow, timeout=0.05)
+    results = _run_battery_tasks(tasks, npz_path, timeout=1.0, log=lambda msg: None)
     elapsed = time.time() - start
 
-    assert completed is False
-    assert value is None
-    assert exc is None
-    assert elapsed < 0.5, f"took {elapsed}s -- looks like it waited for the slow call instead of timing out"
+    assert elapsed < 15.0, f"took {elapsed}s -- should have killed the hung worker at ~1s, not waited it out"
+    assert results["crossfit_lda"]["status"] == "failed"
+    assert results["crossfit_lda"]["timed_out"] is True
+    assert results["crossfit_lda"]["stage"] == "crossfit_lda"
+    assert "timed out after 1.0s" in results["crossfit_lda"]["error"]
 
 
-def test_guarded_call_success_merges_status_ok():
-    out = _guarded_call(lambda: {"x": 1}, timeout=5, fallback=lambda r: {"status": "failed", "error": r})
-    assert out == {"x": 1, "status": "ok"}
+def test_run_battery_tasks_records_worker_exception_without_crashing_parent(tmp_path):
+    npz_path, checkpoints = _write_synthetic_battery_npz(tmp_path)
+    tasks = [("crossfit_bogus", "crossfit", dict(
+        estimator="not_a_real_estimator", seed=13, valid_ranks=[1, 2], n_outer=5, checkpoints=checkpoints,
+        layer_mode="fixed", w_metrics_enabled=True, w_metrics_reason="",
+    ))]
+    results = _run_battery_tasks(tasks, npz_path, timeout=60, log=lambda msg: None)
+    assert results["crossfit_bogus"]["status"] == "failed"
+    assert results["crossfit_bogus"]["timed_out"] is False
+    assert "ValueError" in results["crossfit_bogus"]["error"]
 
 
-def test_guarded_call_does_not_override_an_explicit_status():
-    out = _guarded_call(lambda: {"x": 1, "status": "ok-already"}, timeout=5,
-                         fallback=lambda r: {"status": "failed", "error": r})
-    assert out["status"] == "ok-already"
-
-
-def test_guarded_call_timeout_uses_fallback():
-    def _slow():
-        time.sleep(1.0)
-
-    out = _guarded_call(_slow, timeout=0.05, fallback=lambda r: {"status": "failed", "error": r})
-    assert out["status"] == "failed"
-    assert "timed out after 0.05s" in out["error"]
-
-
-def test_guarded_call_exception_uses_fallback():
-    def _boom():
-        raise RuntimeError("kaboom")
-
-    out = _guarded_call(_boom, timeout=5, fallback=lambda r: {"status": "failed", "error": r})
-    assert out["status"] == "failed"
-    assert "kaboom" in out["error"]
+def test_run_battery_tasks_hang_in_one_task_does_not_block_sibling(tmp_path, monkeypatch):
+    monkeypatch.setenv(rrb._TEST_HANG_ENV_VAR, "crossfit_probe")
+    npz_path, checkpoints = _write_synthetic_battery_npz(tmp_path)
+    tasks = [
+        ("crossfit_lda", "crossfit", dict(estimator="lda", seed=13, valid_ranks=[1, 2], n_outer=5,
+                                            checkpoints=checkpoints, layer_mode="fixed",
+                                            w_metrics_enabled=True, w_metrics_reason="")),
+        ("crossfit_probe", "crossfit", dict(estimator="probe", seed=13, valid_ranks=[1, 2], n_outer=5,
+                                              checkpoints=checkpoints, layer_mode="fixed",
+                                              w_metrics_enabled=True, w_metrics_reason="")),
+    ]
+    results = _run_battery_tasks(tasks, npz_path, timeout=15.0, log=lambda msg: None)
+    assert results["crossfit_lda"]["status"] == "ok"
+    assert results["crossfit_lda"]["fold_results"]
+    assert results["crossfit_probe"]["status"] == "failed"
+    assert results["crossfit_probe"]["timed_out"] is True
 
 
 # ---------------------------------------------------------------------------
-# run_battery: the timeout guard integrated -- a hung cell degrades, the run
-# completes
+# run_battery: the subprocess machinery integrated -- a hung cell degrades,
+# the run completes
 # ---------------------------------------------------------------------------
 
 
 def test_run_battery_completes_normally_reports_status_ok(synthetic_battery_data):
-    """With a generous timeout (the default), every guarded piece succeeds
-    and reports status='ok' -- the additive schema change doesn't disturb
-    the happy path."""
+    """With a generous timeout (the default), every worker task succeeds
+    and reports status='ok'."""
     d = synthetic_battery_data
     spec = dict(name="status_ok_test", corpus="diffssd", factor="generator_id", grouping="source_id")
     result = run_battery(
         spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
-        ranks=[1, 2], n_boot=10, seed=13,
+        ranks=[1, 2], n_boot=10, seed=13, max_rows_per_level=None,
     )
     for name, estimator_result in result["estimators"].items():
         assert estimator_result["status"] == "ok", f"{name}: {estimator_result}"
@@ -993,61 +1075,337 @@ def test_run_battery_completes_normally_reports_status_ok(synthetic_battery_data
 
 
 def test_run_battery_timeout_records_failed_and_continues(synthetic_battery_data, monkeypatch):
-    """Simulates a hung (battery, estimator) cell via an artificially tiny
-    timeout plus slowed-down subspace fits -- the practical, deterministic
-    stand-in for reproducing a genuine ill-conditioned lbfgs/eigh stall
-    (the overnight run that motivated this fix never raised an exception,
-    so an exception handler alone couldn't have caught it -- only a
-    wall-clock timeout can). Verifies run_battery still completes promptly
-    (never hangs) and every guarded piece -- both estimators' crossfit, the
-    headline bootstrap, the rank-sensitivity sweep -- is marked
-    status='failed' rather than propagating or blocking the rest of the run."""
+    """Hang-injects every worker (lda crossfit, probe crossfit, bootstrap,
+    rank-sensitivity sweep) via rrb._TEST_HANG_ENV_VAR -- the practical,
+    deterministic stand-in for reproducing a genuine ill-conditioned
+    lbfgs/eigh stall (the overnight run that motivated this fix never
+    raised an exception, so an exception handler alone couldn't have
+    caught it -- only a wall-clock timeout, enforced by actually killing
+    the worker process, can). Verifies run_battery still completes
+    promptly (never hangs) and every task is marked status='failed',
+    timed_out=True rather than propagating or blocking the rest of the
+    run."""
     d = synthetic_battery_data
     spec = dict(name="timeout_test", corpus="diffssd", factor="generator_id", grouping="source_id")
-
-    def _slow(*a, **kw):
-        time.sleep(0.5)
-        return np.zeros((d["Z"].shape[1], 1))
-
-    monkeypatch.setattr(rrb, "lda_subspace", _slow)
-    monkeypatch.setattr(rrb, "crossfitted_probe_subspace", _slow)
+    monkeypatch.setenv(rrb._TEST_HANG_ENV_VAR, "crossfit_lda,crossfit_probe,bootstrap,rank_curve")
 
     start = time.time()
     result = run_battery(
         spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
-        ranks=[1, 2], n_boot=10, seed=13, battery_timeout_seconds=0.05,
+        ranks=[1, 2], n_boot=10, seed=13, battery_timeout_seconds=1.0, max_rows_per_level=None,
     )
     elapsed = time.time() - start
 
-    assert elapsed < 3.0, f"run_battery took {elapsed}s -- looks like it waited out the slow calls"
+    assert elapsed < 20.0, f"run_battery took {elapsed}s -- looks like it waited out the hung workers"
     for name, estimator_result in result["estimators"].items():
         assert estimator_result["status"] == "failed", f"{name} estimator did not report failed"
+        assert estimator_result["timed_out"] is True
         assert "timed out" in estimator_result["error"]
         assert estimator_result["fold_results"] == []
     assert result["headline_bootstrap"]["status"] == "failed"
-    assert "timed out" in result["headline_bootstrap"]["error"]
+    assert result["headline_bootstrap"]["timed_out"] is True
     assert result["rank_sensitivity"]["status"] == "failed"
-    assert "timed out" in result["rank_sensitivity"]["error"]
+    assert result["rank_sensitivity"]["timed_out"] is True
 
 
 def test_run_battery_timeout_on_one_estimator_does_not_block_the_other(synthetic_battery_data, monkeypatch):
-    """Only the probe estimator is slowed down -- lda must still complete
-    and report status='ok', proving one hung cell degrades independently
+    """Only the probe estimator is hung -- lda must still complete and
+    report status='ok', proving one hung cell degrades independently
     rather than taking the whole battery down with it."""
     d = synthetic_battery_data
     spec = dict(name="partial_timeout_test", corpus="diffssd", factor="generator_id", grouping="source_id")
-
-    def _slow(*a, **kw):
-        time.sleep(20.0)
-        return np.zeros((d["Z"].shape[1], 1))
-
-    monkeypatch.setattr(rrb, "crossfitted_probe_subspace", _slow)
+    monkeypatch.setenv(rrb._TEST_HANG_ENV_VAR, "crossfit_probe")
 
     result = run_battery(
         spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
-        ranks=[1, 2], n_boot=10, seed=13, battery_timeout_seconds=5,
+        ranks=[1, 2], n_boot=10, seed=13, battery_timeout_seconds=15.0, max_rows_per_level=None,
     )
 
     assert result["estimators"]["probe"]["status"] == "failed"
+    assert result["estimators"]["probe"]["timed_out"] is True
     assert result["estimators"]["lda"]["status"] == "ok"
     assert result["estimators"]["lda"]["fold_results"]
+    assert result["headline_bootstrap"]["status"] == "ok"
+    assert result["rank_sensitivity"]["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# single-threaded BLAS env vars
+# ---------------------------------------------------------------------------
+
+
+def test_set_single_threaded_blas_env_sets_all_four_vars(monkeypatch):
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        monkeypatch.delenv(var, raising=False)
+    _set_single_threaded_blas_env()
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        assert os.environ[var] == "1"
+
+
+# ---------------------------------------------------------------------------
+# heartbeat logging / RSS
+# ---------------------------------------------------------------------------
+
+
+def test_process_rss_mb_returns_a_positive_number_on_windows():
+    rss = _process_rss_mb()
+    if sys.platform == "win32":
+        assert rss is not None and rss > 0
+    else:
+        assert rss is None  # best-effort, Windows-only by design
+
+
+# ---------------------------------------------------------------------------
+# row capping: nothing in the battery may scale unboundedly with corpus size
+# ---------------------------------------------------------------------------
+
+
+def test_cap_rows_per_level_bounds_every_level(synthetic_battery_data):
+    d = synthetic_battery_data
+    Z, factor, y, groups = cap_rows_per_level(d["Z"], d["factor"], d["y"], d["groups"],
+                                                max_rows_per_level=10, seed=13)
+    levels, counts = np.unique(factor, return_counts=True)
+    assert counts.max() <= 10
+    assert set(levels) == set(np.unique(d["factor"]))  # every level still represented
+    assert len(Z) == len(factor) == len(y) == len(groups)
+
+
+def test_cap_rows_per_level_leaves_already_small_levels_untouched(synthetic_battery_data):
+    d = synthetic_battery_data
+    n_before = len(d["y"])
+    Z, factor, y, groups = cap_rows_per_level(d["Z"], d["factor"], d["y"], d["groups"],
+                                                max_rows_per_level=10**9, seed=13)
+    assert len(y) == n_before
+    np.testing.assert_array_equal(np.sort(np.unique(factor)), np.sort(np.unique(d["factor"])))
+
+
+def test_cap_rows_per_level_is_seeded_deterministic(synthetic_battery_data):
+    d = synthetic_battery_data
+    out1 = cap_rows_per_level(d["Z"], d["factor"], d["y"], d["groups"], max_rows_per_level=10, seed=7)
+    out2 = cap_rows_per_level(d["Z"], d["factor"], d["y"], d["groups"], max_rows_per_level=10, seed=7)
+    for a, b in zip(out1, out2):
+        np.testing.assert_array_equal(a, b)
+
+
+def test_run_battery_applies_row_cap_before_dispatching(synthetic_battery_data):
+    d = synthetic_battery_data
+    spec = dict(name="row_cap_test", corpus="diffssd", factor="generator_id", grouping="source_id")
+    result = run_battery(
+        spec, d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"],
+        ranks=[1], n_boot=0, seed=13, max_rows_per_level=5,
+    )
+    n_levels = len(np.unique(d["factor"]))
+    assert result["n_rows"] <= n_levels * 5
+
+
+# ---------------------------------------------------------------------------
+# pre-run cost gate
+# ---------------------------------------------------------------------------
+
+
+def test_run_cost_probe_returns_positive_timings(synthetic_battery_data):
+    d = synthetic_battery_data
+    probe = run_cost_probe(
+        d["Z"], d["factor"], d["y"], d["groups"], d["checkpoints"], valid_ranks=[1, 2], n_outer=5,
+        layer_mode="fixed", w_metrics_enabled=True, w_metrics_reason="", seed=13, n_boot_sample=2,
+    )
+    assert probe["t_fit_seconds"] >= 0
+    assert probe["t_effect_seconds"] >= 0
+    assert probe["t_boot_per_resample_seconds"] >= 0
+
+
+def test_project_battery_cost_scales_with_grid_size():
+    small_probe = dict(t_fit_seconds=1.0, t_effect_seconds=1.0, t_boot_per_resample_seconds=1.0)
+    small = project_battery_cost(small_probe, n_candidates=2, n_outer=5, n_boot=10, n_ranks=2)
+    large = project_battery_cost(small_probe, n_candidates=2, n_outer=5, n_boot=1000, n_ranks=8)
+    assert large > small
+
+
+def test_run_cost_gate_raises_systemexit_when_projection_exceeds_budget(synthetic_battery_data):
+    d = synthetic_battery_data
+    manifest_rows = pd.DataFrame({
+        "path": [f"datasets/03_DiffSSD/f{i}.wav" for i in range(len(d["y"]))],
+        "target": d["y"], "generator_id": d["factor"], "source_id": d["groups"],
+        "utt_id": [f"u{i}" for i in range(len(d["y"]))],
+    })
+    corpus_data = {"diffssd": dict(df=manifest_rows, emb=d["Z"], emb_full=None)}
+    batteries = [dict(name="cost_gate_test", corpus="diffssd", factor="generator_id", grouping="source_id")]
+
+    class _Args:
+        ranks = [1, 2]
+        n_boot = 1000
+        seed = 13
+        max_rows_per_level = None
+        layer_mode = "fixed"
+        wall_clock_budget = 1e-9  # absurdly tiny -- must refuse
+        force_run = False
+
+    with pytest.raises(SystemExit, match="exceeds --wall-clock-budget"):
+        run_cost_gate(corpus_data, batteries, d["checkpoints"],
+                       dict(enabled=True, reason=""), _Args(), log=lambda msg: None)
+
+
+def test_run_cost_gate_proceeds_silently_when_within_budget(synthetic_battery_data):
+    d = synthetic_battery_data
+    manifest_rows = pd.DataFrame({
+        "path": [f"datasets/03_DiffSSD/f{i}.wav" for i in range(len(d["y"]))],
+        "target": d["y"], "generator_id": d["factor"], "source_id": d["groups"],
+        "utt_id": [f"u{i}" for i in range(len(d["y"]))],
+    })
+    corpus_data = {"diffssd": dict(df=manifest_rows, emb=d["Z"], emb_full=None)}
+    batteries = [dict(name="cost_gate_test", corpus="diffssd", factor="generator_id", grouping="source_id")]
+
+    class _Args:
+        ranks = [1, 2]
+        n_boot = 10
+        seed = 13
+        max_rows_per_level = None
+        layer_mode = "fixed"
+        wall_clock_budget = 1e9  # absurdly generous -- must not raise
+        force_run = False
+
+    run_cost_gate(corpus_data, batteries, d["checkpoints"], dict(enabled=True, reason=""), _Args(),
+                   log=lambda msg: None)  # no exception == pass
+
+
+# ---------------------------------------------------------------------------
+# --smoke: a tiny, fully-synthetic battery through the real end-to-end path
+# ---------------------------------------------------------------------------
+
+
+def test_smoke_end_to_end_produces_valid_json_quickly(tmp_path):
+    out_path = tmp_path / "smoke.json"
+    start = time.time()
+    output = run_smoke_test(out_path, seed=13, battery_timeout_seconds=60.0)
+    elapsed = time.time() - start
+
+    assert elapsed < 60.0, f"--smoke took {elapsed}s -- should finish in well under a minute"
+    assert out_path.exists()
+    reloaded = json.loads(out_path.read_text())
+    assert reloaded == output
+    battery = output["batteries"][0]
+    assert battery["estimators"]["lda"]["status"] == "ok"
+    assert battery["estimators"]["probe"]["status"] == "ok"
+    assert battery["headline_bootstrap"]["status"] == "ok"
+    assert battery["rank_sensitivity"]["status"] == "ok"
+
+
+def test_main_smoke_flag_runs_and_exits_cleanly(tmp_path):
+    out_path = tmp_path / "smoke_via_cli.json"
+    main(["--smoke", "--out", str(out_path)])  # must not raise
+    assert out_path.exists()
+    output = json.loads(out_path.read_text())
+    assert output["batteries"][0]["estimators"]["lda"]["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# incremental per-battery JSON writing: a later battery's failure must not
+# erase earlier results
+# ---------------------------------------------------------------------------
+
+
+def test_battery_output_path_derives_a_distinct_file_per_battery():
+    out_path = Path("analysis/step3/reliance_layer9.json")
+    p1 = _battery_output_path(out_path, "diffssd_generator_by_source")
+    p2 = _battery_output_path(out_path, "vctk_speaker_by_speaker")
+    assert p1 != p2
+    assert p1.parent == out_path.parent
+    assert p1.name == "reliance_layer9_diffssd_generator_by_source.json"
+
+
+def _write_multi_corpus_main_inputs(tmp_path, rng, corpora, w_dim=12, cache_dim=12):
+    """Mirrors the pattern established in earlier reliance-battery tests --
+    a real manifest CSV + a real cache shard + real (dim-matched) fake
+    checkpoints, for a genuine end-to-end main() dry run. Distinct from
+    _write_synthetic_main_inputs above (single-corpus, --w-metrics-focused
+    fixture) -- this one spans multiple corpora for the incremental
+    per-battery JSON tests."""
+    manifest_dir = tmp_path / "manifests"
+    cache_root = tmp_path / "cache"
+    ckpt_dir = tmp_path / "ckpts"
+    manifest_dir.mkdir()
+    ckpt_dir.mkdir()
+
+    corpus_dirs = {"diffssd": "03_DiffSSD", "vctk": "09_VCTK"}
+    for corpus in corpora:
+        corpus_dir = corpus_dirs[corpus]
+        (cache_root / corpus_dir).mkdir(parents=True)
+        n = 80
+        generators = rng.choice(["a", "b", "c", "d"], size=n)
+        rows = []
+        for i in range(n):
+            rows.append(dict(
+                utt_id=f"{corpus}/f{i}", path=f"datasets/{corpus_dir}/f{i}.wav", target=1, corpus=corpus,
+                split="train", attack=generators[i], bona_fide_source="na",
+                source_id=f"src{i % 10}", speaker_id=f"src{i % 10}", generator_id=generators[i],
+                channel_id="NA", language="NA", platform_id="NA",
+            ))
+        pd.DataFrame(rows).to_csv(manifest_dir / f"{corpus}.csv", index=False)
+        emb = rng.standard_normal((n, 25, cache_dim)).astype(np.float16)
+        paths = np.array([f"f{i}.wav" for i in range(n)])
+        np.savez(cache_root / corpus_dir / "shard_0000.npz", emb=emb, paths=paths)
+
+    for run in rrb.RUNS:
+        sd = dict(
+            model={"binary.fc.weight": torch.randn(1, w_dim), "binary.fc.bias": torch.randn(1)},
+            cfg={"model": {"layer_weight_init_center": 10, "layer_weight_init_band": [8, 11]}},
+        )
+        torch.save(sd, ckpt_dir / f"runs_{run}_best.pt")
+    return manifest_dir, cache_root, ckpt_dir
+
+
+def test_main_writes_a_separate_json_per_battery(tmp_path):
+    rng = np.random.default_rng(21)
+    manifest_dir, cache_root, ckpt_dir = _write_multi_corpus_main_inputs(tmp_path, rng, ["diffssd", "vctk"])
+    out_path = tmp_path / "out.json"
+
+    main([
+        "--cache-root", str(cache_root), "--manifest-dir", str(manifest_dir), "--layer", "9",
+        "--out", str(out_path), "--corpus", "diffssd", "vctk",
+        "--factor", "generator_id", "speaker_id",
+        "--ranks", "1", "2", "--n-boot", "0", "--seed", "13", "--ckpt-dir", str(ckpt_dir),
+        "--battery-timeout-seconds", "60", "--wall-clock-budget", "3600",
+    ])
+
+    manifest = json.loads(out_path.read_text())
+    assert len(manifest["battery_files"]) == len(manifest["batteries"])
+    for name, path_str in manifest["battery_files"].items():
+        battery_path = Path(path_str)
+        assert battery_path.exists(), f"per-battery file missing for {name}"
+        battery_doc = json.loads(battery_path.read_text())
+        assert battery_doc["battery"]["name"] == name
+        assert "prereg_candidate" in battery_doc
+
+
+def test_main_earlier_battery_json_survives_a_later_batterys_unexpected_failure(tmp_path, monkeypatch):
+    rng = np.random.default_rng(22)
+    manifest_dir, cache_root, ckpt_dir = _write_multi_corpus_main_inputs(tmp_path, rng, ["diffssd", "vctk"])
+    out_path = tmp_path / "out.json"
+
+    real_run_battery = rrb.run_battery
+    call_count = {"n": 0}
+
+    def _flaky_run_battery(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise RuntimeError("simulated unexpected failure in the second battery")
+        return real_run_battery(*args, **kwargs)
+
+    monkeypatch.setattr(rrb, "run_battery", _flaky_run_battery)
+
+    main([
+        "--cache-root", str(cache_root), "--manifest-dir", str(manifest_dir), "--layer", "9",
+        "--out", str(out_path), "--corpus", "diffssd", "vctk",
+        "--factor", "generator_id", "speaker_id",
+        "--ranks", "1", "2", "--n-boot", "0", "--seed", "13", "--ckpt-dir", str(ckpt_dir),
+        "--battery-timeout-seconds", "60", "--wall-clock-budget", "3600",
+    ])  # must not raise -- the second battery's failure must not crash the run
+
+    manifest = json.loads(out_path.read_text())
+    assert len(manifest["battery_files"]) == 2
+    statuses = []
+    for name, path_str in manifest["battery_files"].items():
+        battery_doc = json.loads(Path(path_str).read_text())
+        statuses.append("failed" in battery_doc["battery"])
+    assert any(statuses), "expected exactly one battery to carry the simulated failure"
+    assert not all(statuses), "expected the other battery to have completed normally"

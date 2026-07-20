@@ -41,8 +41,31 @@ def sym_matrix_power(S: np.ndarray, power: float, rtol: float = 1e-8) -> np.ndar
     power. This is what makes `power=-0.5` a safe *whitening* transform even when
     S (e.g. an empirical covariance with n < d) is singular.
     """
+    vals, vecs = _eigh_symmetrize(S)
+    return _apply_power(vals, vecs, power, rtol)
+
+
+def sym_matrix_powers(S: np.ndarray, powers: tuple[float, ...], rtol: float = 1e-8) -> tuple[np.ndarray, ...]:
+    """Like `sym_matrix_power`, but for several powers of the SAME matrix at
+    once, sharing a single eigendecomposition -- e.g. LEACE needs both S^-0.5
+    (whitening) and S^0.5 (un-whitening) of the same covariance; computing
+    each via a separate `sym_matrix_power` call redundantly eigendecomposes
+    an identical (d, d) matrix twice, which for d in the low thousands
+    (embedding-dimension scale) is one of the dominant per-fold costs in the
+    reliance battery. Mathematically identical to calling `sym_matrix_power`
+    once per power -- this is purely a shared-computation optimization, not
+    a change to any result.
+    """
+    vals, vecs = _eigh_symmetrize(S)
+    return tuple(_apply_power(vals, vecs, p, rtol) for p in powers)
+
+
+def _eigh_symmetrize(S: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     S = np.asarray(S, dtype=np.float64)
-    vals, vecs = np.linalg.eigh((S + S.T) / 2.0)  # symmetrize defensively
+    return np.linalg.eigh((S + S.T) / 2.0)  # symmetrize defensively
+
+
+def _apply_power(vals: np.ndarray, vecs: np.ndarray, power: float, rtol: float) -> np.ndarray:
     thresh = rtol * max(vals.max(), 1e-300)
     keep = vals > thresh
     powered = np.zeros_like(vals)

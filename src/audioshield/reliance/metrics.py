@@ -30,7 +30,7 @@ from typing import Callable
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
-from ._linalg import orthonormal_basis, sym_matrix_power
+from ._linalg import orthonormal_basis, sym_matrix_powers
 
 # ---------------------------------------------------------------------------
 # (i) alignment
@@ -186,8 +186,10 @@ def fit_leace(X: np.ndarray, z: np.ndarray, rtol: float = 1e-8) -> LinearEraser:
     Sigma_xx = (Xc.T @ Xc) / denom
     Sigma_xz = (Xc.T @ Zc) / denom
 
-    W = sym_matrix_power(Sigma_xx, -0.5, rtol=rtol)
-    W_inv = sym_matrix_power(Sigma_xx, 0.5, rtol=rtol)
+    # Both powers of the SAME Sigma_xx -- one shared eigendecomposition
+    # (sym_matrix_powers), not two of a (d, d) matrix (d in the low
+    # thousands at embedding scale is one of the dominant per-fold costs).
+    W, W_inv = sym_matrix_powers(Sigma_xx, (-0.5, 0.5), rtol=rtol)
     WZ = W @ Sigma_xz
     Q = orthonormal_basis(WZ, rtol=rtol)
     P_ws = Q @ Q.T

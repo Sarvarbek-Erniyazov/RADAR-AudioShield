@@ -154,6 +154,26 @@ def test_leace_eraser_rank_matches_concept_dimensionality(planted_factor_data):
     assert eraser.rank_removed >= 1
 
 
+def test_fit_leace_eigendecomposes_sigma_xx_only_once(monkeypatch, planted_factor_data):
+    """Performance regression guard: fit_leace needs both Sigma_xx^-0.5 and
+    Sigma_xx^0.5 of the SAME matrix. A naive implementation calling
+    sym_matrix_power twice eigendecomposes an identical (d, d) matrix
+    twice -- one of the dominant per-fold costs in the reliance battery at
+    embedding scale. Must call np.linalg.eigh exactly once."""
+    d = planted_factor_data
+    seen = []
+    original_eigh = np.linalg.eigh
+
+    def _spy_eigh(a, *args, **kwargs):
+        seen.append(np.asarray(a).shape)
+        return original_eigh(a, *args, **kwargs)
+
+    monkeypatch.setattr(np.linalg, "eigh", _spy_eigh)
+    fit_leace(d["Z"], d["factor"])
+
+    assert len(seen) == 1, f"expected exactly one np.linalg.eigh call, got {len(seen)}: {seen}"
+
+
 def test_leace_handles_continuous_concept():
     rng = np.random.default_rng(0)
     n, dim = 500, 10

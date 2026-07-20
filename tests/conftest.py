@@ -2,6 +2,25 @@ import numpy as np
 import pandas as pd
 import pytest
 
+@pytest.fixture(autouse=True)
+def _clear_subspace_cache():
+    """lda_subspace/crossfitted_probe_subspace cache their rank-independent
+    computation (eigendecomposition / cross-fitted coefficient rows) keyed
+    by a content hash of their inputs (audioshield.reliance.subspaces).
+    Deterministically-seeded fixtures (e.g. planted_factor_data) can
+    legitimately produce byte-identical arrays across unrelated test
+    functions -- without resetting the cache between tests, a later test
+    could silently hit an earlier, unrelated test's cache entry (e.g. a
+    test asserting a scaler was called a specific number of times would
+    see zero calls on a cache hit). Reset before every test; only affects
+    performance, never correctness, in production (each battery task runs
+    in its own freshly-spawned process there, so this is always empty at
+    the start regardless)."""
+    from audioshield.reliance.subspaces import clear_subspace_cache
+    clear_subspace_cache()
+    yield
+
+
 @pytest.fixture
 def synthetic_manifest(tmp_path):
     """Tiny manifest with the v3 factor-metadata schema (audit §4.6/§4.8)."""

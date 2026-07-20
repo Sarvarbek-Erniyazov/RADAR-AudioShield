@@ -6,7 +6,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 from audioshield.reliance._linalg import orthonormal_basis, principal_angles
-from audioshield.reliance.subspaces import lda_subspace, crossfitted_probe_subspace
+from audioshield.reliance.subspaces import clear_subspace_cache, lda_subspace, crossfitted_probe_subspace
 
 MAX_RECOVERY_ANGLE_DEG = 25.0   # generous: synthetic noise + finite n
 MAX_AGREEMENT_ANGLE_DEG = 25.0
@@ -189,3 +189,100 @@ def test_subspace_estimators_recover_planted_factor_with_ill_conditioned_scale(p
 
     angles = np.degrees(principal_angles(U_hat, U_true_rescaled))
     assert angles.max() < MAX_RECOVERY_ANGLE_DEG + 15, f"{estimator}: angles={angles}"  # extra slack for the extreme rescale
+
+
+# ---------------------------------------------------------------------------
+# Rank-independent computation cache: "decompose once, slice top-k per
+# rank" -- a cache hit must be indistinguishable in RESULT from a cache
+# miss (only the expensive recomputation is skipped), and unrelated data
+# must never collide.
+# ---------------------------------------------------------------------------
+
+
+def test_lda_subspace_cache_skips_eigh_on_repeated_call_same_data(monkeypatch, planted_factor_data):
+    d = planted_factor_data
+    clear_subspace_cache()
+    calls = {"n": 0}
+    from scipy.linalg import eigh as real_eigh
+
+    def _spy_eigh(*a, **kw):
+        calls["n"] += 1
+        return real_eigh(*a, **kw)
+
+    monkeypatch.setattr("scipy.linalg.eigh", _spy_eigh)
+
+    lda_subspace(d["Z"], d["factor"], d["y"], k=1, mode="within_class")
+    assert calls["n"] == 1
+    lda_subspace(d["Z"], d["factor"], d["y"], k=1, mode="within_class")
+    assert calls["n"] == 1, "identical call should have hit the cache, not recomputed the eigensolve"
+
+
+def test_lda_subspace_cache_hit_across_different_k_gives_correct_results(monkeypatch, planted_factor_data):
+    """The cache is keyed on (Z, factor, y, mode, ridge) -- NOT k. A cache
+    hit for a different k must still slice the correct top-k directions,
+    not reuse a wrong-shaped result."""
+    d = planted_factor_data
+    clear_subspace_cache()
+    calls = {"n": 0}
+    from scipy.linalg import eigh as real_eigh
+
+    def _spy_eigh(*a, **kw):
+        calls["n"] += 1
+        return real_eigh(*a, **kw)
+
+    monkeypatch.setattr("scipy.linalg.eigh", _spy_eigh)
+
+    U1 = lda_subspace(d["Z"], d["factor"], d["y"], k=1, mode="within_class")
+    U3 = lda_subspace(d["Z"], d["factor"], d["y"], k=3, mode="within_class")
+    assert calls["n"] == 1, "second call (different k, same data) should still have hit the cache"
+    assert U1.shape == (d["d"], 1)
+    assert U3.shape == (d["d"], 3)
+    # NOTE: U1 is NOT necessarily (up to sign) U3's first column -- the
+    # per-dimension /scaler.scale_ unscaling step makes the top-k
+    # eigenvectors non-orthogonal, so orthonormal_basis's SVD re-orthonormalizes
+    # k of them TOGETHER, which can rotate within the top-k span. Both must
+    # still recover the SAME planted factor subspace to the same quality,
+    # which is the property that actually matters (and the one a cache bug
+    # -- reusing a stale/wrong-shaped decomposition -- would break).
+    angles = np.degrees(principal_angles(U1, d["U_true"]))
+    assert angles.max() < MAX_RECOVERY_ANGLE_DEG
+    angles = np.degrees(principal_angles(U3, d["U_true"]))
+    assert angles.max() < MAX_RECOVERY_ANGLE_DEG
+
+
+def test_lda_subspace_cache_does_not_collide_across_different_data(monkeypatch, planted_factor_data):
+    d = planted_factor_data
+    clear_subspace_cache()
+    calls = {"n": 0}
+    from scipy.linalg import eigh as real_eigh
+
+    def _spy_eigh(*a, **kw):
+        calls["n"] += 1
+        return real_eigh(*a, **kw)
+
+    monkeypatch.setattr("scipy.linalg.eigh", _spy_eigh)
+
+    lda_subspace(d["Z"][:1000], d["factor"][:1000], d["y"][:1000], k=1, mode="within_class")
+    lda_subspace(d["Z"][1000:2000], d["factor"][1000:2000], d["y"][1000:2000], k=1, mode="within_class")
+    assert calls["n"] == 2, "different data must never hit each other's cache entry"
+
+
+def test_crossfitted_probe_subspace_cache_skips_refit_on_repeated_call(monkeypatch, planted_factor_data):
+    d = planted_factor_data
+    clear_subspace_cache()
+    calls = {"n": 0}
+    original_fit = LogisticRegression.fit
+
+    def _spy_fit(self, X, y, *a, **kw):
+        calls["n"] += 1
+        return original_fit(self, X, y, *a, **kw)
+
+    monkeypatch.setattr(LogisticRegression, "fit", _spy_fit)
+
+    crossfitted_probe_subspace(d["Z"][:300], d["factor"][:300], d["y"][:300], k=1, n_splits=3, seed=13)
+    n_after_first = calls["n"]
+    assert n_after_first > 0
+    crossfitted_probe_subspace(d["Z"][:300], d["factor"][:300], d["y"][:300], k=2, n_splits=3, seed=13)
+    assert calls["n"] == n_after_first, (
+        "second call (different k, same data) should have hit the cache -- no new LogisticRegression fits"
+    )
