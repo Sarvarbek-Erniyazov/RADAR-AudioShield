@@ -1,0 +1,1619 @@
+{
+  "schema_version": 1,
+  "git_sha": "b3376fc4ba267125f2fa4c93bea7509491341c51",
+  "timestamp": "2026-07-20T19:06:38.894878+00:00",
+  "layer": 9,
+  "layer_mode": "fixed",
+  "seed": 13,
+  "w_metrics": {
+    "enabled": false,
+    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)",
+    "w_dim": 256,
+    "embedding_dim": 1024
+  },
+  "join_stats": {
+    "diffssd": {
+      "n_cache": 94226,
+      "n_manifest": 94226,
+      "n_joined": 94226,
+      "n_dropped": 0
+    }
+  },
+  "checkpoints": {
+    "e007_A_fresh": {
+      "ckpt_layer_center": 10,
+      "ckpt_layer_band": [
+        8,
+        11
+      ],
+      "layer_pooling": "fixed_layer",
+      "band_weights": null,
+      "w_layer_mismatch": true,
+      "w_dim": 256,
+      "w_dim_mismatch": true
+    },
+    "e007_B_fresh": {
+      "ckpt_layer_center": 10,
+      "ckpt_layer_band": [
+        8,
+        11
+      ],
+      "layer_pooling": "fixed_layer",
+      "band_weights": null,
+      "w_layer_mismatch": true,
+      "w_dim": 256,
+      "w_dim_mismatch": true
+    },
+    "e007_C_xlsr_fresh": {
+      "ckpt_layer_center": 10,
+      "ckpt_layer_band": [
+        8,
+        11
+      ],
+      "layer_pooling": "fixed_layer",
+      "band_weights": null,
+      "w_layer_mismatch": true,
+      "w_dim": 256,
+      "w_dim_mismatch": true
+    }
+  },
+  "battery_files": {
+    "diffssd_openvoicev2_accent_by_speaker": "E:\\AI_voice_detection\\analysis\\step3\\reliance_layer9_boot_diffssd_openvoicev2_accent_by_speaker.json"
+  },
+  "batteries": [
+    {
+      "name": "diffssd_openvoicev2_accent_by_speaker",
+      "corpus": "diffssd",
+      "factor": "language",
+      "grouping": "speaker_id",
+      "n_rows": 10000,
+      "n_levels": 5,
+      "n_groups": 10,
+      "grouping_degenerate": false,
+      "ranks_requested": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        12,
+        16,
+        24
+      ],
+      "ranks_valid": [
+        1,
+        2,
+        3
+      ],
+      "layer_mode": "fixed",
+      "estimators": {
+        "lda": {
+          "fold_results": [
+            {
+              "fold_id": 0,
+              "chosen": {
+                "k": 1
+              },
+              "selection_score": 0.985292929250473,
+              "effect": {
+                "per_checkpoint": {
+                  "e007_A_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_B_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_C_xlsr_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  }
+                },
+                "factor_separation_score": 0.9849368436482071,
+                "leace": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.2,
+                  "decodability_drop": 0.8
+                },
+                "inlp": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.5967795564929456,
+                  "decodability_drop": 0.40322044350705444
+                },
+                "projection_removal_control": {
+                  "true_effect": 0.0,
+                  "random_effects": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "random_mean": 0.0,
+                  "random_std": 0.0,
+                  "exceeds_random": false,
+                  "task_direction_effect": {
+                    "value": null,
+                    "status": "not_estimable",
+                    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                  }
+                }
+              },
+              "n_selection": 8024,
+              "n_effect": 1976
+            },
+            {
+              "fold_id": 1,
+              "chosen": {
+                "k": 1
+              },
+              "selection_score": 0.9866268483444688,
+              "effect": {
+                "per_checkpoint": {
+                  "e007_A_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_B_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_C_xlsr_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  }
+                },
+                "factor_separation_score": 0.9771010264811517,
+                "leace": {
+                  "factor_decodability_before": 0.9971425881466836,
+                  "factor_decodability_after": 0.2,
+                  "decodability_drop": 0.7971425881466836
+                },
+                "inlp": {
+                  "factor_decodability_before": 0.9971425881466836,
+                  "factor_decodability_after": 0.6394310299496058,
+                  "decodability_drop": 0.3577115581970778
+                },
+                "projection_removal_control": {
+                  "true_effect": 0.0,
+                  "random_effects": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "random_mean": 0.0,
+                  "random_std": 0.0,
+                  "exceeds_random": false,
+                  "task_direction_effect": {
+                    "value": null,
+                    "status": "not_estimable",
+                    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                  }
+                }
+              },
+              "n_selection": 8017,
+              "n_effect": 1983
+            },
+            {
+              "fold_id": 2,
+              "chosen": {
+                "k": 1
+              },
+              "selection_score": 0.9847079937115026,
+              "effect": {
+                "per_checkpoint": {
+                  "e007_A_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_B_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_C_xlsr_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  }
+                },
+                "factor_separation_score": 0.9892541200241138,
+                "leace": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.2,
+                  "decodability_drop": 0.8
+                },
+                "inlp": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.5662269752708576,
+                  "decodability_drop": 0.43377302472914236
+                },
+                "projection_removal_control": {
+                  "true_effect": 0.0,
+                  "random_effects": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "random_mean": 0.0,
+                  "random_std": 0.0,
+                  "exceeds_random": false,
+                  "task_direction_effect": {
+                    "value": null,
+                    "status": "not_estimable",
+                    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                  }
+                }
+              },
+              "n_selection": 7982,
+              "n_effect": 2018
+            },
+            {
+              "fold_id": 3,
+              "chosen": {
+                "k": 1
+              },
+              "selection_score": 0.9801021396932458,
+              "effect": {
+                "per_checkpoint": {
+                  "e007_A_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_B_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_C_xlsr_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  }
+                },
+                "factor_separation_score": 0.9862473632873735,
+                "leace": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.2,
+                  "decodability_drop": 0.8
+                },
+                "inlp": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.6020918561662425,
+                  "decodability_drop": 0.3979081438337575
+                },
+                "projection_removal_control": {
+                  "true_effect": 0.0,
+                  "random_effects": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "random_mean": 0.0,
+                  "random_std": 0.0,
+                  "exceeds_random": false,
+                  "task_direction_effect": {
+                    "value": null,
+                    "status": "not_estimable",
+                    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                  }
+                }
+              },
+              "n_selection": 7984,
+              "n_effect": 2016
+            },
+            {
+              "fold_id": 4,
+              "chosen": {
+                "k": 1
+              },
+              "selection_score": 0.9768310120472156,
+              "effect": {
+                "per_checkpoint": {
+                  "e007_A_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_B_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_C_xlsr_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  }
+                },
+                "factor_separation_score": 0.9867905766264986,
+                "leace": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.2,
+                  "decodability_drop": 0.8
+                },
+                "inlp": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.6863242891217662,
+                  "decodability_drop": 0.31367571087823376
+                },
+                "projection_removal_control": {
+                  "true_effect": 0.0,
+                  "random_effects": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "random_mean": 0.0,
+                  "random_std": 0.0,
+                  "exceeds_random": false,
+                  "task_direction_effect": {
+                    "value": null,
+                    "status": "not_estimable",
+                    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                  }
+                }
+              },
+              "n_selection": 7993,
+              "n_effect": 2007
+            }
+          ],
+          "status": "ok",
+          "timed_out": false
+        },
+        "probe": {
+          "fold_results": [
+            {
+              "fold_id": 0,
+              "chosen": {
+                "k": 3
+              },
+              "selection_score": 0.9370956928129837,
+              "effect": {
+                "per_checkpoint": {
+                  "e007_A_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_B_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_C_xlsr_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  }
+                },
+                "factor_separation_score": 0.9330253275447798,
+                "leace": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.2,
+                  "decodability_drop": 0.8
+                },
+                "inlp": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.5967795564929456,
+                  "decodability_drop": 0.40322044350705444
+                },
+                "projection_removal_control": {
+                  "true_effect": 0.0,
+                  "random_effects": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "random_mean": 0.0,
+                  "random_std": 0.0,
+                  "exceeds_random": false,
+                  "task_direction_effect": {
+                    "value": null,
+                    "status": "not_estimable",
+                    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                  }
+                }
+              },
+              "n_selection": 8024,
+              "n_effect": 1976
+            },
+            {
+              "fold_id": 1,
+              "chosen": {
+                "k": 3
+              },
+              "selection_score": 0.9479240454578268,
+              "effect": {
+                "per_checkpoint": {
+                  "e007_A_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_B_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_C_xlsr_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  }
+                },
+                "factor_separation_score": 0.9318675414520395,
+                "leace": {
+                  "factor_decodability_before": 0.9971425881466836,
+                  "factor_decodability_after": 0.2,
+                  "decodability_drop": 0.7971425881466836
+                },
+                "inlp": {
+                  "factor_decodability_before": 0.9971425881466836,
+                  "factor_decodability_after": 0.6394310299496058,
+                  "decodability_drop": 0.3577115581970778
+                },
+                "projection_removal_control": {
+                  "true_effect": 0.0009132420091322313,
+                  "random_effects": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "random_mean": 0.0,
+                  "random_std": 0.0,
+                  "exceeds_random": true,
+                  "task_direction_effect": {
+                    "value": null,
+                    "status": "not_estimable",
+                    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                  }
+                }
+              },
+              "n_selection": 8017,
+              "n_effect": 1983
+            },
+            {
+              "fold_id": 2,
+              "chosen": {
+                "k": 3
+              },
+              "selection_score": 0.9428126361736738,
+              "effect": {
+                "per_checkpoint": {
+                  "e007_A_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_B_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_C_xlsr_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  }
+                },
+                "factor_separation_score": 0.9339775670335386,
+                "leace": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.2,
+                  "decodability_drop": 0.8
+                },
+                "inlp": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.5662269752708576,
+                  "decodability_drop": 0.43377302472914236
+                },
+                "projection_removal_control": {
+                  "true_effect": 0.0,
+                  "random_effects": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "random_mean": 0.0,
+                  "random_std": 0.0,
+                  "exceeds_random": false,
+                  "task_direction_effect": {
+                    "value": null,
+                    "status": "not_estimable",
+                    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                  }
+                }
+              },
+              "n_selection": 7982,
+              "n_effect": 2018
+            },
+            {
+              "fold_id": 3,
+              "chosen": {
+                "k": 3
+              },
+              "selection_score": 0.93184686514725,
+              "effect": {
+                "per_checkpoint": {
+                  "e007_A_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_B_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_C_xlsr_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  }
+                },
+                "factor_separation_score": 0.9134834670952369,
+                "leace": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.2,
+                  "decodability_drop": 0.8
+                },
+                "inlp": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.6020918561662425,
+                  "decodability_drop": 0.3979081438337575
+                },
+                "projection_removal_control": {
+                  "true_effect": 0.0,
+                  "random_effects": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "random_mean": 0.0,
+                  "random_std": 0.0,
+                  "exceeds_random": false,
+                  "task_direction_effect": {
+                    "value": null,
+                    "status": "not_estimable",
+                    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                  }
+                }
+              },
+              "n_selection": 7984,
+              "n_effect": 2016
+            },
+            {
+              "fold_id": 4,
+              "chosen": {
+                "k": 3
+              },
+              "selection_score": 0.9322090226775229,
+              "effect": {
+                "per_checkpoint": {
+                  "e007_A_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_B_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  },
+                  "e007_C_xlsr_fresh": {
+                    "alignment": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "r_var_class_conditional": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "prediction_change_control": {
+                      "value": null,
+                      "status": "not_estimable",
+                      "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                    },
+                    "w_layer_mismatch": null,
+                    "ckpt_layer_center": 10,
+                    "layer_pooling": "fixed_layer"
+                  }
+                },
+                "factor_separation_score": 0.9428144757489181,
+                "leace": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.2,
+                  "decodability_drop": 0.8
+                },
+                "inlp": {
+                  "factor_decodability_before": 1.0,
+                  "factor_decodability_after": 0.6863242891217662,
+                  "decodability_drop": 0.31367571087823376
+                },
+                "projection_removal_control": {
+                  "true_effect": 0.0,
+                  "random_effects": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "random_mean": 0.0,
+                  "random_std": 0.0,
+                  "exceeds_random": false,
+                  "task_direction_effect": {
+                    "value": null,
+                    "status": "not_estimable",
+                    "reason": "runs_e007_A_fresh_best.pt: w (binary.fc.weight) is 256-d but the embedding cache is a single raw backbone hidden-state layer, pre-pooling -- no linear pullback exists between these spaces: w is the classifier weight over the model's pooled+projected embedding (AttentiveStatsPooling over the sequence, then proj.0 (256, 2048) -> GELU -> proj.4 (256, 256), a nonlinear transform)"
+                  }
+                }
+              },
+              "n_selection": 7993,
+              "n_effect": 2007
+            }
+          ],
+          "status": "ok",
+          "timed_out": false
+        }
+      },
+      "headline_bootstrap": {
+        "metric": "factor_separation_score",
+        "rank": 1,
+        "mean": 0.9921816946785448,
+        "std": 0.0008789582490864774,
+        "lo": 0.9907795863939457,
+        "hi": 0.9938667012519375,
+        "n_boot": 1000,
+        "n_groups": 10,
+        "n_finite": 1000,
+        "n_boot_failed": 0,
+        "status": "ok",
+        "timed_out": false
+      },
+      "rank_sensitivity": {
+        "metric": "factor_separation_score",
+        "ranks": [
+          1,
+          2,
+          3
+        ],
+        "values": [
+          0.9909137529118937,
+          0.9894005821365893,
+          0.988168971386272
+        ],
+        "status": "ok",
+        "timed_out": false
+      }
+    }
+  ],
+  "prereg_candidates": [
+    {
+      "name": "diffssd_openvoicev2_accent_by_speaker",
+      "headline_metric": "factor_separation_score",
+      "stable_rank_window": [
+        1,
+        2,
+        3
+      ],
+      "estimators_agree_sign": true,
+      "cis_overlap": false,
+      "n_groups": 10,
+      "grouping_degenerate": false
+    }
+  ]
+}
