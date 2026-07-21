@@ -410,6 +410,68 @@ def test_extract_checkpoint_corpus_resume_still_works_for_the_same_checkpoint(tm
     assert stats2["written"] == 0 and stats2["skipped"] == 1
 
 
+def test_extract_checkpoint_corpus_raises_on_old_format_shard_missing_checkpoint_sha256(tmp_path):
+    """The Finding-3 fix (step3_modelspace_hardening_addendum.md): an
+    existing shard whose meta is valid JSON but simply predates the
+    checkpoint_sha256 field (an old-format shard) must NOT be silently
+    trusted as a completed resume -- _read_shard_checkpoint_sha256 returns
+    None here (no exception, just a missing key), and that None must raise,
+    not fall through to skipped += 1."""
+    data_root = tmp_path / "data"
+    rows = _write_diffssd_rows(data_root, n=3)
+    ckpt = tmp_path / "ckpt.pt"
+    ckpt.write_bytes(b"real checkpoint bytes")
+    cfg = {"experiment": {"sample_rate": 16000, "duration_seconds": 0.5}}
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+
+    # An old-format shard: valid schema, valid JSON meta, but no
+    # checkpoint_sha256 key at all -- simulates a shard written before that
+    # field existed, which _read_shard_checkpoint_sha256 reads as None via
+    # meta.get(...) rather than an exception.
+    _write_shard_atomic(
+        out_dir / "shard_0000.npz",
+        np.array(["f00.wav", "f01.wav", "f02.wav"]),
+        np.zeros((3, 5), dtype=np.float32),
+        dict(model_config_hash="def", git_sha="ghi", dtype="float32"),
+    )
+
+    with pytest.raises(RuntimeError, match="UNVERIFIABLE EXISTING SHARD"):
+        extract_checkpoint_corpus(
+            _FakeEmbedModel(), cfg, ckpt, "diffssd", rows, data_root, out_dir,
+            device="cpu", batch_size=2, shard_size=3, dtype="float32", git_sha="x",
+        )
+
+
+def test_extract_checkpoint_corpus_raises_on_shard_with_unparseable_meta(tmp_path):
+    """Same guard, different unreadable-ness: the meta entry itself is not
+    valid JSON (corrupt write, truncated file, whatever) --
+    _read_shard_checkpoint_sha256 hits its broad except and returns None.
+    Must raise, same as the missing-key case above, not skip."""
+    data_root = tmp_path / "data"
+    rows = _write_diffssd_rows(data_root, n=3)
+    ckpt = tmp_path / "ckpt.pt"
+    ckpt.write_bytes(b"real checkpoint bytes")
+    cfg = {"experiment": {"sample_rate": 16000, "duration_seconds": 0.5}}
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+
+    shard_path = out_dir / "shard_0000.npz"
+    tmp_shard = shard_path.with_name(shard_path.name + ".tmp")
+    with open(tmp_shard, "wb") as f:
+        np.savez(f, paths=np.array(["f00.wav", "f01.wav", "f02.wav"]),
+                 emb=np.zeros((3, 5), dtype=np.float32),
+                 meta=np.array("{not valid json"))
+    import os
+    os.replace(tmp_shard, shard_path)
+
+    with pytest.raises(RuntimeError, match="UNVERIFIABLE EXISTING SHARD"):
+        extract_checkpoint_corpus(
+            _FakeEmbedModel(), cfg, ckpt, "diffssd", rows, data_root, out_dir,
+            device="cpu", batch_size=2, shard_size=3, dtype="float32", git_sha="x",
+        )
+
+
 def test_main_run_name_keys_the_cache_directory(tmp_path, monkeypatch):
     """--run-name, not the checkpoint path's .stem, decides the cache
     subdirectory -- the fix for two checkpoints sharing a filename.

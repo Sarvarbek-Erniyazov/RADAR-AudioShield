@@ -186,9 +186,10 @@ def test_load_checkpoint_head_reads_binary_fc_weight_and_bias(tmp_path):
 
 def test_load_checkpoint_head_sha256_matches_the_real_checkpoint_file_bytes(tmp_path):
     """Confirms load_checkpoint_head's sha256 is the CHECKPOINT FILE's own
-    hash (same value scripts/extract_model_embeddings.py's _sha256_file
-    would compute over the same file), not some other placeholder --
-    the exact identity the pairing guard depends on."""
+    hash (same value audioshield.utils.hashing.sha256_file -- shared with
+    scripts/extract_model_embeddings.py -- would compute over the same
+    file), not some other placeholder -- the exact identity the pairing
+    guard depends on."""
     import hashlib
 
     ckpt_path = tmp_path / "runs_e007_A_fresh_best.pt"
@@ -435,9 +436,10 @@ def _build_and_run_modelspace_cli(tmp_path, monkeypatch, runs=("e007_A_fresh", "
         ckpt_path = ckpt_dir / f"runs_{run}_best.pt"
         _write_synthetic_checkpoint(ckpt_path, w, b=0.0)
         # The shard's checkpoint_sha256 must be THIS checkpoint's own real
-        # file hash -- matching what extract_model_embeddings.py's real
-        # _sha256_file(ckpt_path) would have recorded -- so the pairing
-        # guard (Item 3b) passes for this legitimate, correctly-paired case.
+        # file hash -- matching what audioshield.utils.hashing.sha256_file
+        # (shared by extract_model_embeddings.py and this consumer) would
+        # have recorded -- so the pairing guard (Item 3b) passes for this
+        # legitimate, correctly-paired case.
         real_sha = hashlib.sha256(ckpt_path.read_bytes()).hexdigest()
         _write_model_space_shard(cache_root / f"runs_{run}_best" / "03_DiffSSD" / "shard_0000.npz",
                                   n=n, dim=dim, corpus="diffssd", corpus_dir="03_DiffSSD", seed=i + 50,

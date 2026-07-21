@@ -127,13 +127,19 @@ from audioshield.reliance.crossfit import run_nested_crossfit
 from audioshield.reliance.metrics import r_var
 from audioshield.reliance.subspaces import lda_subspace
 from audioshield.reliance.uncertainty import grouped_bootstrap_ci, rank_sensitivity_curve
+from audioshield.utils.hashing import sha256_file
 
-# Read-only imports -- neither run_reliance_battery.py nor
-# extract_model_embeddings.py is ever modified by this script; every name
-# below is reused verbatim so the consumers cannot silently diverge on the
-# math, the output shape, or the checkpoint-identity hash.
+# Read-only imports -- run_reliance_battery.py is never modified by this
+# script; every name below is reused verbatim so the two consumers cannot
+# silently diverge on the math or the output shape. Deliberately NOT
+# importing anything from extract_model_embeddings.py (step3_modelspace_
+# hardening_addendum.md Finding 2): that module is the GPU/model stack
+# (torch, AudioShieldX, UnifiedAudioDataset) and sets process-global
+# offline-mode env vars at import time -- this CPU-only analysis script
+# must not become contingent on that stack importing cleanly just to
+# reuse a five-line hash helper, which now lives in
+# audioshield.utils.hashing (stdlib-only) instead.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from extract_model_embeddings import _sha256_file  # noqa: E402
 from run_reliance_battery import (  # noqa: E402
     BATTERIES,
     CANDIDATE_B_KEYS,
@@ -235,12 +241,15 @@ def load_checkpoint_head(ckpt_path: Path) -> tuple[np.ndarray, float, int, str]:
     all, so there is nothing to compare a requested layer against.
 
     Also returns the checkpoint FILE's own sha256 (via
-    extract_model_embeddings._sha256_file, the SAME hash function that
-    computed the value stored in every shard's meta.checkpoint_sha256) --
-    this is the other half of the pairing guarantee: the caller compares
-    this against load_model_space_embeddings' returned checkpoint_sha256
-    before trusting that this w and that Z came from the same trained
-    model."""
+    audioshield.utils.hashing.sha256_file -- a stdlib-only shared module,
+    NOT extract_model_embeddings.py, so this CPU-only script never
+    transitively imports that module's GPU/model stack just to reuse a
+    hash helper; see that module's own docstring), the SAME hash function
+    that computed the value stored in every shard's meta.checkpoint_sha256
+    -- this is the other half of the pairing guarantee: the caller
+    compares this against load_model_space_embeddings' returned
+    checkpoint_sha256 before trusting that this w and that Z came from
+    the same trained model."""
     sd = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     state = sd.get("model", sd) if isinstance(sd, dict) else sd
     w_key = _find_key(state, CANDIDATE_W_KEYS)
@@ -249,7 +258,7 @@ def load_checkpoint_head(ckpt_path: Path) -> tuple[np.ndarray, float, int, str]:
     w = state[w_key].squeeze().float().cpu().numpy()
     b_key = _find_key(state, CANDIDATE_B_KEYS)
     b = float(state[b_key].squeeze().float().cpu().item()) if b_key is not None else 0.0
-    return w, b, int(w.shape[0]), _sha256_file(ckpt_path)
+    return w, b, int(w.shape[0]), sha256_file(ckpt_path)
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +508,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ckpt-dir", default=str(CKPT_DIR))
     ap.add_argument("--checkpoints", nargs="+", default=list(RUNS))
     ap.add_argument("--max-rows-per-level", type=int, default=DEFAULT_MAX_ROWS_PER_LEVEL)
+    ap.add_argument("--require-all-checkpoints", action="store_true",
+                     help="raise instead of warn-and-skip when a requested checkpoint's .pt file or "
+                         "model-space cache is missing (step3_modelspace_hardening_addendum.md Finding 1: "
+                         "a naming mismatch between this consumer and scripts/extract_model_embeddings.py "
+                         "otherwise silently shrinks a battery's checkpoint count -- a real gate-feeding "
+                         "run must use this flag so 'cache not found' can never masquerade as a completed "
+                         "battery with fewer instances). Default off, so synthetic/preflight tests keep "
+                         "their lenient skip-and-continue behavior.")
     return ap
 
 
@@ -516,6 +533,11 @@ def main(argv=None) -> None:
     for run in args.checkpoints:
         ckpt_path = ckpt_dir / f"runs_{run}_best.pt"
         if not ckpt_path.exists():
+            if args.require_all_checkpoints:
+                raise RuntimeError(
+                    f"--require-all-checkpoints is set but checkpoint file not found for run {run!r}: "
+                    f"{ckpt_path}"
+                )
             _log(f"[WARN] {ckpt_path}: not found -- skipping checkpoint {run!r}")
             continue
         w, b, w_dim, ckpt_sha256 = load_checkpoint_head(ckpt_path)
@@ -548,6 +570,15 @@ def main(argv=None) -> None:
                     cache_root, head["checkpoint_stem"], corpus_dir
                 )
             except FileNotFoundError as e:
+                if args.require_all_checkpoints:
+                    expected_dir = cache_root / head["checkpoint_stem"] / corpus_dir
+                    raise RuntimeError(
+                        f"{spec['name']}/{run}: --require-all-checkpoints is set but no model-space "
+                        f"cache found at {expected_dir} ({e}). Run:\n"
+                        f"    python scripts/extract_model_embeddings.py "
+                        f"--checkpoint {ckpt_dir / f'runs_{run}_best.pt'} --corpus {corpus} "
+                        f"--data-root .. --out-root {cache_root}"
+                    ) from e
                 _log(f"[WARN] {spec['name']}: {e} -- skipping checkpoint {run!r} for this battery")
                 continue
             # THE PAIRING GUARANTEE (Item 3b): dimension-matching (both sides
@@ -558,7 +589,7 @@ def main(argv=None) -> None:
             # checkpoint_sha256 (written by extract_model_embeddings.py from
             # the checkpoint FILE it actually extracted, not a placeholder)
             # must equal THIS run's checkpoint file's own sha256, computed
-            # independently here via the same _sha256_file function.
+            # independently here via the same sha256_file function.
             if cache_sha256 is None:
                 raise RuntimeError(
                     f"{run}/{corpus}: the model-space cache under {cache_root / head['checkpoint_stem'] / corpus_dir} "

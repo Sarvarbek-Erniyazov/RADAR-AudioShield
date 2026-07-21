@@ -31,25 +31,51 @@ checkpoint-specific -- <run-name> is --run-name's entry for this
 checkpoint (an explicit, deliberately-chosen identifier), or that
 checkpoint path's own .stem if --run-name wasn't given. THE STEM FALLBACK
 COLLIDES for checkpoints sharing a filename (e.g. runs/e007_A/best.pt and
-runs/e007_B/best.pt both stem to "best" -- pass --run-name explicitly
-whenever checkpoints share a filename, as in the usage example below).
-Even under a collision, extract_checkpoint_corpus's checkpoint_sha256
-guard refuses to treat one checkpoint's shard as another's completed
-resume -- it raises rather than silently mixing embeddings from two
-different checkpoints under one directory. Shard writes are atomic (temp
-file + rename), so an existing shard_*.npz is always complete and is
-never recomputed on rerun (resume, once its checkpoint_sha256 is
-confirmed to match). Asserts non-zero rows per corpus before writing
-anything.
+runs/e007_B/best.pt both stem to "best").
 
-Usage:
+THE EXTRACTOR-CONSUMER NAMING CONTRACT (step3_modelspace_hardening_addendum.md
+Finding 1): scripts/run_reliance_modelspace.py locates a checkpoint's cache
+by constructing `ckpt_dir / f"runs_{run}_best.pt"` and using THAT path's own
+.stem (e.g. "runs_e007_A_fresh_best") as the directory name it looks
+under -- the SAME flat-checkpoint-file convention
+run_reliance_battery.py's own load_all_checkpoints already uses. The
+CANONICAL, contract-satisfying invocation therefore extracts from those
+same flat files with NO --run-name at all (the stem IS already unique per
+checkpoint, so there's nothing to disambiguate) -- see Usage below. Passing
+--checkpoint on some OTHER path (e.g. a nested runs/<run>/best.pt layout)
+requires passing --run-name runs_<run>_best (matching what the consumer
+computes) for the two scripts' directory names to actually meet; the
+nested layout without a matching --run-name produces a cache the consumer
+will never find (silently downgraded to a per-checkpoint skip there,
+not a crash -- see that script's --require-all-checkpoints for a loud
+version of that failure instead). Even under a naming collision (or a
+consumer/extractor mismatch that reuses one directory for two different
+checkpoints), extract_checkpoint_corpus's checkpoint_sha256 guard refuses
+to treat one checkpoint's shard as another's completed resume -- it raises
+rather than silently mixing embeddings from two different checkpoints
+under one directory. Shard writes are atomic (temp file + rename), so an
+existing shard_*.npz is always complete and is never recomputed on rerun
+(resume, once its checkpoint_sha256 is confirmed to match). Asserts
+non-zero rows per corpus before writing anything.
+
+Usage (the canonical, consumer-matching invocation -- flat checkpoint
+files, no --run-name needed):
     python scripts/extract_model_embeddings.py --preflight \
-        --checkpoint runs/e007_A/best.pt runs/e007_B/best.pt \
+        --checkpoint <ckpt-dir>/runs_e007_A_fresh_best.pt \
+                     <ckpt-dir>/runs_e007_B_fresh_best.pt \
         --corpus diffssd replaydf vctk --data-root ..
 
     python scripts/extract_model_embeddings.py \
-        --checkpoint runs/e007_A/best.pt runs/e007_B/best.pt \
-        --run-name e007_A e007_B \
+        --checkpoint <ckpt-dir>/runs_e007_A_fresh_best.pt \
+                     <ckpt-dir>/runs_e007_B_fresh_best.pt \
+        --corpus diffssd replaydf vctk \
+        --data-root .. --out-root analysis/step3/_embcache_modelspace
+
+If only a NESTED layout (runs/<run>/best.pt) exists, --run-name is
+required to avoid both the stem collision and a consumer lookup miss:
+    python scripts/extract_model_embeddings.py \
+        --checkpoint runs/e007_A_fresh/best.pt runs/e007_B_fresh/best.pt \
+        --run-name runs_e007_A_fresh_best runs_e007_B_fresh_best \
         --corpus diffssd replaydf vctk \
         --data-root .. --out-root analysis/step3/_embcache_modelspace
 """
@@ -76,6 +102,7 @@ from torch.utils.data import DataLoader
 from audioshield.data.manifest import ManifestRow, read_manifest
 from audioshield.data.unified_dataset import UnifiedAudioDataset, collate_unified
 from audioshield.models.detector import AudioShieldX
+from audioshield.utils.hashing import sha256_file
 from audioshield.utils.runtime import describe_device
 
 DEFAULT_MANIFEST_DIR = "manifests/v2"
@@ -119,14 +146,6 @@ def _strip_dataset_prefix(path: str, corpus_dir: str) -> str:
     if not path.startswith(prefix):
         raise ValueError(f"{path!r} does not start with expected prefix {prefix!r}")
     return path[len(prefix):]
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _model_config_hash(cfg: dict) -> str:
@@ -357,8 +376,14 @@ def _write_shard_atomic(shard_path: Path, paths: np.ndarray, emb: np.ndarray, me
 def _read_shard_checkpoint_sha256(shard_path: Path) -> str | None:
     """Reads just the `checkpoint_sha256` field out of an existing shard's
     meta, for the collision guard below. Returns None if the shard can't
-    be read as a valid shard at all (caller treats that as "can't verify,
-    don't trust an existing directory here either")."""
+    be read as a valid shard at all (corrupt npz, unparseable/old-format
+    meta, or a missing checkpoint_sha256 key) -- the caller (below) treats
+    this as UNVERIFIABLE, not benign: "cannot confirm identity" means
+    refuse, the same strict stance run_reliance_modelspace.py's own
+    pairing guard already takes on a missing/unparseable cache hash
+    (step3_modelspace_hardening_addendum.md Finding 3 -- this function's
+    caller used to fall through to a silent resume on None, the one place
+    the extractor was less strict than the consumer)."""
     try:
         with np.load(shard_path, allow_pickle=True) as data:
             meta = json.loads(str(data["meta"]))
@@ -384,20 +409,26 @@ def extract_checkpoint_corpus(
     """Stream `rows` through model.embed() in fixed-size shards, writing
     shard_{i:04d}.npz with the same (paths, emb) key schema as the existing
     XLS-R-300M cache, plus a "meta" entry. A shard file that already exists
-    on disk is assumed complete (writes are atomic, see _write_shard_atomic)
-    and is skipped without re-running the model on it (resume) -- UNLESS its
-    recorded checkpoint_sha256 doesn't match the checkpoint being extracted
-    now, in which case this is not a resume, it's a NAMING COLLISION (two
-    different checkpoints mapped to the same out_dir, e.g. two nested
-    runs/<run>/best.pt paths sharing the stem "best") -- fail loud rather
-    than silently treat checkpoint B's rows as checkpoint A's completed
-    shard."""
+    on disk is skipped without re-running the model on it (resume) ONLY if
+    its recorded checkpoint_sha256 can be read AND matches the checkpoint
+    being extracted now. Two ways that can fail, both raise instead of
+    silently proceeding:
+    - identity mismatch -- a NAMING COLLISION (two different checkpoints
+      mapped to the same out_dir, e.g. two nested runs/<run>/best.pt paths
+      sharing the stem "best");
+    - identity unreadable -- an UNVERIFIABLE EXISTING SHARD (corrupt npz,
+      unparseable/old-format meta, or a missing checkpoint_sha256 key);
+      "cannot verify" means refuse, not silently trust-and-skip, the same
+      stance already taken on a mismatch
+      (step3_modelspace_hardening_addendum.md Finding 3).
+    Either way this fails loud rather than silently treating an untrusted
+    on-disk shard as a completed resume."""
     if not rows:
         raise ValueError(f"{corpus}: 0 rows -- refusing to write an empty cache")
     out_dir.mkdir(parents=True, exist_ok=True)
     corpus_dir = _corpus_dir_from_rows(rows)
 
-    ckpt_sha = _sha256_file(ckpt_path)
+    ckpt_sha = sha256_file(ckpt_path)
     cfg_hash = _model_config_hash(cfg)
     np_dtype = np.float16 if dtype == "float16" else np.float32
     torch_dtype = torch.float16 if dtype == "float16" else torch.float32
@@ -410,7 +441,18 @@ def extract_checkpoint_corpus(
         shard_rows = rows[shard_i * shard_size: (shard_i + 1) * shard_size]
         if shard_path.exists():
             existing_sha = _read_shard_checkpoint_sha256(shard_path)
-            if existing_sha is not None and existing_sha != ckpt_sha:
+            if existing_sha is None:
+                raise RuntimeError(
+                    f"{shard_path}: UNVERIFIABLE EXISTING SHARD -- this shard exists but its "
+                    "checkpoint_sha256 identity could not be read (corrupt npz, unparseable/old-format "
+                    "meta, or a missing checkpoint_sha256 key). Refusing to treat an existing shard "
+                    "whose identity can't be confirmed as a completed resume for "
+                    f"{ckpt_path} (sha256={ckpt_sha[:16]}...) -- 'cannot verify' means refuse, not "
+                    "trust, the same stance run_reliance_modelspace.py already takes on an unreadable "
+                    "cache hash (step3_modelspace_hardening_addendum.md Finding 3). Delete or move "
+                    f"{shard_path} aside if it's stale, or fix the corruption, then re-run."
+                )
+            if existing_sha != ckpt_sha:
                 raise RuntimeError(
                     f"{shard_path}: NAMING COLLISION -- this shard was written for a checkpoint "
                     f"with sha256={existing_sha[:16]}..., but the checkpoint being extracted now "
@@ -465,9 +507,14 @@ def main(argv=None) -> None:
     ap.add_argument("--run-name", nargs="+", default=None,
                      help="explicit cache-directory identifier per --checkpoint, same order/count. "
                           "Defaults to each checkpoint path's own .stem, which COLLIDES for checkpoints "
-                          "sharing a filename (e.g. runs/e007_A_fresh/best.pt and runs/e007_B_fresh/best.pt "
-                          "both stem to \"best\") -- pass this explicitly (e.g. e007_A_fresh e007_B_fresh) "
-                          "whenever checkpoints share a filename. A collision is still caught (never silently "
+                          "sharing a filename (e.g. two nested runs/<run>/best.pt paths both stem to "
+                          "\"best\"). Extracting from the flat runs_<run>_best.pt files "
+                          "scripts/run_reliance_modelspace.py and run_reliance_battery.py already use "
+                          "needs no --run-name at all (the stem is already unique and matches what the "
+                          "consumer looks for); only pass this explicitly for a nested/non-flat checkpoint "
+                          "layout, matching the consumer's own runs_<run>_best convention (e.g. "
+                          "--run-name runs_e007_A_fresh_best runs_e007_B_fresh_best) so the two scripts' "
+                          "directory names actually meet. A collision is still caught (never silently "
                           "corrupted) by the checkpoint_sha256 guard in extract_checkpoint_corpus regardless.")
     ap.add_argument("--corpus", nargs="+", required=True, help="corpus names matching <manifest-dir>/<corpus>.csv")
     ap.add_argument("--manifest-dir", default=DEFAULT_MANIFEST_DIR)
