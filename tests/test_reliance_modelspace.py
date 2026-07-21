@@ -38,7 +38,9 @@ from run_reliance_modelspace import (  # noqa: E402
     run_checkpoint_crossfit,
     run_modelspace_battery,
 )
-from run_reliance_battery import run_battery  # noqa: E402 -- imported for the numerical-parity test only
+import run_gate  # noqa: E402 -- imported for the gate-wiring tests, completely unmodified
+# run_reliance_battery.run_battery is used by _reliance_modelspace_parity_worker.py
+# (the numerical-parity test's subprocess), not imported directly here.
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +96,8 @@ def _make_multi_checkpoint_synthetic_battery(seed=13, runs=("ckA", "ckB", "ckC")
 # ---------------------------------------------------------------------------
 
 
-def _write_model_space_shard(shard_path: Path, n: int, dim: int, corpus: str, corpus_dir: str, seed: int) -> np.ndarray:
+def _write_model_space_shard(shard_path: Path, n: int, dim: int, corpus: str, corpus_dir: str, seed: int,
+                              checkpoint_sha256: str = "a") -> np.ndarray:
     shard_path.parent.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
     emb = rng.normal(size=(n, dim)).astype(np.float32)
@@ -102,7 +105,7 @@ def _write_model_space_shard(shard_path: Path, n: int, dim: int, corpus: str, co
     # (datasets/<corpus_dir>/f{i:04d}.wav) so join_cache_to_manifest's join
     # actually matches rows in the end-to-end test below.
     paths = np.array([f"f{i:04d}.wav" for i in range(n)])
-    meta = dict(checkpoint_sha256="a", model_config_hash="b", git_sha="c", dtype="float32",
+    meta = dict(checkpoint_sha256=checkpoint_sha256, model_config_hash="b", git_sha="c", dtype="float32",
                 checkpoint_path="x", corpus=corpus, corpus_dir=corpus_dir, n_rows=n)
     np.savez(shard_path, paths=paths, emb=emb, meta=np.array(json.dumps(meta)))
     return emb
@@ -111,10 +114,11 @@ def _write_model_space_shard(shard_path: Path, n: int, dim: int, corpus: str, co
 def test_load_model_space_embeddings_reads_real_2d_schema(tmp_path):
     emb = _write_model_space_shard(tmp_path / "ckA" / "03_DiffSSD" / "shard_0000.npz",
                                     n=10, dim=8, corpus="diffssd", corpus_dir="03_DiffSSD", seed=0)
-    paths, loaded_emb = load_model_space_embeddings(tmp_path, "ckA", "03_DiffSSD")
+    paths, loaded_emb, sha = load_model_space_embeddings(tmp_path, "ckA", "03_DiffSSD")
     assert loaded_emb.shape == (10, 8)
     assert paths.shape == (10,)
     np.testing.assert_allclose(loaded_emb, emb)
+    assert sha == "a"  # _write_model_space_shard's default checkpoint_sha256
 
 
 def test_load_model_space_embeddings_concatenates_multiple_shards(tmp_path):
@@ -122,9 +126,10 @@ def test_load_model_space_embeddings_concatenates_multiple_shards(tmp_path):
                               n=5, dim=8, corpus="diffssd", corpus_dir="03_DiffSSD", seed=0)
     _write_model_space_shard(tmp_path / "ckA" / "03_DiffSSD" / "shard_0001.npz",
                               n=7, dim=8, corpus="diffssd", corpus_dir="03_DiffSSD", seed=1)
-    paths, emb = load_model_space_embeddings(tmp_path, "ckA", "03_DiffSSD")
+    paths, emb, sha = load_model_space_embeddings(tmp_path, "ckA", "03_DiffSSD")
     assert emb.shape == (12, 8)
     assert paths.shape == (12,)
+    assert sha == "a"
 
 
 def test_load_model_space_embeddings_raises_on_missing_shards(tmp_path):
@@ -145,6 +150,21 @@ def test_load_model_space_embeddings_rejects_3d_layer_axis_shape(tmp_path):
         load_model_space_embeddings(tmp_path, "ckA", "03_DiffSSD")
 
 
+def test_load_model_space_embeddings_raises_on_disagreeing_shard_sha256(tmp_path):
+    """Two shards under the same directory recording DIFFERENT
+    checkpoint_sha256 values means shards from two different extraction
+    runs were mixed into one cache directory -- must raise, not silently
+    average/concatenate them as if they were one checkpoint's output."""
+    _write_model_space_shard(tmp_path / "ckA" / "03_DiffSSD" / "shard_0000.npz",
+                              n=5, dim=8, corpus="diffssd", corpus_dir="03_DiffSSD", seed=0,
+                              checkpoint_sha256="sha_of_checkpoint_A")
+    _write_model_space_shard(tmp_path / "ckA" / "03_DiffSSD" / "shard_0001.npz",
+                              n=5, dim=8, corpus="diffssd", corpus_dir="03_DiffSSD", seed=1,
+                              checkpoint_sha256="sha_of_checkpoint_B")
+    with pytest.raises(ValueError, match="disagrees"):
+        load_model_space_embeddings(tmp_path, "ckA", "03_DiffSSD")
+
+
 def _write_synthetic_checkpoint(path: Path, w: np.ndarray, b: float) -> None:
     state = {"binary.fc.weight": torch.tensor(w, dtype=torch.float32).reshape(1, -1),
              "binary.fc.bias": torch.tensor([b], dtype=torch.float32)}
@@ -156,11 +176,25 @@ def test_load_checkpoint_head_reads_binary_fc_weight_and_bias(tmp_path):
     w = np.array([1.0, 2.0, 3.0, 4.0])
     _write_synthetic_checkpoint(ckpt_path, w, b=0.5)
 
-    loaded_w, loaded_b, w_dim = load_checkpoint_head(ckpt_path)
+    loaded_w, loaded_b, w_dim, sha = load_checkpoint_head(ckpt_path)
 
     np.testing.assert_allclose(loaded_w, w)
     assert loaded_b == pytest.approx(0.5)
     assert w_dim == 4
+    assert isinstance(sha, str) and len(sha) == 64  # a real sha256 hex digest
+
+
+def test_load_checkpoint_head_sha256_matches_the_real_checkpoint_file_bytes(tmp_path):
+    """Confirms load_checkpoint_head's sha256 is the CHECKPOINT FILE's own
+    hash (same value scripts/extract_model_embeddings.py's _sha256_file
+    would compute over the same file), not some other placeholder --
+    the exact identity the pairing guard depends on."""
+    import hashlib
+
+    ckpt_path = tmp_path / "runs_e007_A_fresh_best.pt"
+    _write_synthetic_checkpoint(ckpt_path, np.array([1.0, 2.0]), b=0.0)
+    _, _, _, sha = load_checkpoint_head(ckpt_path)
+    assert sha == hashlib.sha256(ckpt_path.read_bytes()).hexdigest()
 
 
 def test_load_checkpoint_head_raises_without_a_recognized_weight_key(tmp_path):
@@ -277,43 +311,88 @@ def test_run_modelspace_battery_row_cap_keeps_checkpoints_row_aligned():
 # ---------------------------------------------------------------------------
 # Numerical parity: this sibling's per-checkpoint orchestration must
 # reproduce run_reliance_battery.py's OWN run_battery on a single checkpoint
-# -- proving shared primitives, not divergent math (Definition of Done #3).
+# -- proving shared primitives, not divergent math (Definition of Done #3,
+# tightened per step3_modelspace_preextraction_gate_brief.md Item 2).
+#
+# Runs the WHOLE comparison inside a FRESH SUBPROCESS
+# (_reliance_modelspace_parity_worker.py) launched with OPENBLAS_NUM_THREADS/
+# MKL_NUM_THREADS/OMP_NUM_THREADS/NUMEXPR_NUM_THREADS already set to "1" --
+# BLAS reads these at library-load time, so that process's own numpy
+# initializes single-threaded natively, and run_battery's own subprocess-
+# isolated crossfit workers (spawned FROM that process) inherit the same
+# environment, single-threading the entire process tree with one
+# mechanism (the brief's own "robust, order-independent way"), rather than
+# needing threadpool_limits in this test process (which cannot reach
+# run_battery's separately-spawned children at all) AND env vars for the
+# children as two different mechanisms.
+#
+# PROOF-OF-PIN is asserted, not assumed: the worker reports
+# threadpoolctl.threadpool_info()'s observed num_threads for every BLAS
+# layer it can see, and its own effective env vars, both of which this
+# test asserts are literally 1/"1" before trusting any residual as
+# "identical math."
+#
+# MEASURED RESULT (this investigation, this machine): comparing float64 Z
+# on both sides gave a max relative residual of ~6.4e-6 -- WELL above the
+# brief's ~1e-9 expectation. Investigated rather than assumed benign:
+# isolated with NO subprocess involved at all that this is run_battery's
+# own _write_battery_npz (line 539) unconditionally casting Z to float32
+# before its workers ever see it (real, pre-existing, protected
+# behavior) -- a precision difference, amplified into a large RELATIVE
+# residual specifically on a near-zero alignment value (~4e-6), not
+# subprocess/BLAS non-determinism and not divergent code. Casting Z to
+# float32 before EITHER side computes anything (matching what both paths
+# actually operate on in real production use: extract_model_embeddings.py
+# and this sibling's own load_model_space_embeddings both cast to
+# float32 at load, same as run_battery's _write_battery_npz) gives an
+# EXACT (0.0) relative residual on every compared field, both estimators,
+# every fold -- confirmed by _reliance_modelspace_parity_worker.py, this
+# test's own subprocess. Tolerance is set at rel=1e-9 (a decade+ above
+# the true measured 0.0) for cross-platform/BLAS-version robustness while
+# remaining tight enough to catch a genuine future divergence; the exact-
+# equality assertions on discrete fields (fold_id, chosen rank,
+# exceeds_random) are kept as bit-exact (== not approx).
+#
+# SCOPE: this is a float32 statement, matching real production precision
+# on both sides -- NOT a claim about float64 behavior (float64-vs-
+# run_battery's-forced-float32 comparison has a real, explained, larger
+# residual purely from that precision difference, not from any divergence
+# between the two implementations' math).
 # ---------------------------------------------------------------------------
 
+_PARITY_TOLERANCE_REL = 1e-9  # a decade+ above the measured 0.0 (see docstring above)
 
-def test_numerical_parity_single_checkpoint_matches_run_battery():
-    Z_by_checkpoint, factor, y, groups, checkpoints = _make_multi_checkpoint_synthetic_battery(runs=("ckA",))
-    run = "ckA"
-    spec = dict(name="parity_test", corpus="diffssd", factor="generator_id", grouping="source_id")
 
-    sibling_result = run_modelspace_battery(spec, Z_by_checkpoint, factor, y, groups, checkpoints,
-                                             ranks=[1, 2, 3], n_boot=0, seed=13, max_rows_per_level=None)
-    original_result = run_battery(spec, Z_by_checkpoint[run], factor, y, groups, checkpoints,
-                                   ranks=[1, 2, 3], n_boot=0, seed=13, layer_mode="fixed",
-                                   w_metrics_enabled=True, max_rows_per_level=None)
+def test_numerical_parity_single_checkpoint_matches_run_battery_under_verified_blas_pin():
+    import subprocess
+    import sys as _sys
 
-    # run_battery dispatches its two estimators as SEPARATE SPAWNED PROCESSES
-    # (subprocess isolation); this sibling runs in-process. Neither path here
-    # pins single-threaded BLAS (that only happens inside main(), never
-    # called by either call above), so a tiny (~1e-5 relative) floating-point
-    # difference from multi-threaded BLAS reduction order is expected and is
-    # NOT evidence of divergent math -- rel=1e-4 is still far tighter than
-    # that noise floor while remaining well below any scientifically
-    # meaningful difference.
-    for estimator in ("lda", "probe"):
-        sib_folds = sibling_result["estimators"][estimator]["fold_results"]
-        orig_folds = original_result["estimators"][estimator]["fold_results"]
-        assert len(sib_folds) == len(orig_folds)
-        for sib_fold, orig_fold in zip(sib_folds, orig_folds):
-            assert sib_fold["fold_id"] == orig_fold["fold_id"]
-            sib_ck = sib_fold["effect"]["per_checkpoint"][run]
-            orig_ck = orig_fold["effect"]["per_checkpoint"][run]
-            assert sib_ck["alignment"] == pytest.approx(orig_ck["alignment"], rel=1e-4)
-            assert sib_ck["r_var"] == pytest.approx(orig_ck["r_var"], rel=1e-4)
-            assert (sib_ck["prediction_change"]["mean_abs_logit_change"]
-                    == pytest.approx(orig_ck["prediction_change"]["mean_abs_logit_change"], rel=1e-4))
-            assert (sib_ck["prediction_change_control"]["exceeds_random"]
-                    == orig_ck["prediction_change_control"]["exceeds_random"])
+    worker_path = Path(__file__).resolve().parent / "_reliance_modelspace_parity_worker.py"
+    env = dict(__import__("os").environ)
+    env.update(OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1", OMP_NUM_THREADS="1", NUMEXPR_NUM_THREADS="1")
+
+    proc = subprocess.run([_sys.executable, str(worker_path)], env=env, capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, f"parity worker failed:\nstdout={proc.stdout}\nstderr={proc.stderr}"
+
+    # The worker's heartbeat logs (from _log, reused verbatim) also go to
+    # stdout -- the JSON result is always the LAST line printed.
+    result = json.loads(proc.stdout.strip().splitlines()[-1])
+
+    # PROOF-OF-PIN: don't trust the residual below unless BLAS was
+    # genuinely single-threaded in the process that computed it.
+    assert result["env_vars"] == {"OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+                                   "OMP_NUM_THREADS": "1", "NUMEXPR_NUM_THREADS": "1"}
+    assert result["blas_threads"], "no BLAS layer detected by threadpoolctl in the worker process"
+    assert all(n == 1 for n in result["blas_threads"]), f"BLAS not single-threaded: {result['blas_threads']}"
+
+    assert result["discrete_mismatches"] == []  # fold_id/chosen/exceeds_random bit-exact
+
+    max_rel_residual = max(r["rel_residual"] for r in result["residuals"])
+    worst = max(result["residuals"], key=lambda r: r["rel_residual"])
+    assert max_rel_residual < _PARITY_TOLERANCE_REL, (
+        f"max relative residual {max_rel_residual} exceeds tolerance {_PARITY_TOLERANCE_REL} -- "
+        f"worst field: {worst}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -346,14 +425,23 @@ def _build_and_run_modelspace_cli(tmp_path, monkeypatch, runs=("e007_A_fresh", "
     manifest_dir = tmp_path / "manifests"
     _write_manifest(manifest_dir, "diffssd", n=n, n_groups=n_groups, seed=7)
 
+    import hashlib
+
     ckpt_dir = tmp_path / "checkpoints"
     ckpt_dir.mkdir()
     cache_root = tmp_path / "_embcache_modelspace"
     for i, run in enumerate(runs):
         w = np.random.default_rng(i).normal(size=dim)
-        _write_synthetic_checkpoint(ckpt_dir / f"runs_{run}_best.pt", w, b=0.0)
+        ckpt_path = ckpt_dir / f"runs_{run}_best.pt"
+        _write_synthetic_checkpoint(ckpt_path, w, b=0.0)
+        # The shard's checkpoint_sha256 must be THIS checkpoint's own real
+        # file hash -- matching what extract_model_embeddings.py's real
+        # _sha256_file(ckpt_path) would have recorded -- so the pairing
+        # guard (Item 3b) passes for this legitimate, correctly-paired case.
+        real_sha = hashlib.sha256(ckpt_path.read_bytes()).hexdigest()
         _write_model_space_shard(cache_root / f"runs_{run}_best" / "03_DiffSSD" / "shard_0000.npz",
-                                  n=n, dim=dim, corpus="diffssd", corpus_dir="03_DiffSSD", seed=i + 50)
+                                  n=n, dim=dim, corpus="diffssd", corpus_dir="03_DiffSSD", seed=i + 50,
+                                  checkpoint_sha256=real_sha)
 
     out_path = tmp_path / "reliance_modelspace.json"
     main([
@@ -389,29 +477,205 @@ def test_main_end_to_end_writes_schema_valid_populated_battery(tmp_path, monkeyp
                 assert np.isfinite(ck_effect["alignment"])
 
 
+def test_main_raises_on_mispaired_embedding_and_head(tmp_path, monkeypatch):
+    """THE PAIRING GUARANTEE, end to end: a model-space cache whose
+    recorded checkpoint_sha256 does NOT match the checkpoint file the
+    consumer actually loads the head from -- both still 256-d (here 6-d),
+    so the dimension guard alone could never catch this -- must raise,
+    never silently compute a finite, plausible, wrong reliance number."""
+    monkeypatch.chdir(tmp_path)
+    n, n_groups, dim = 200, 20, 6
+    manifest_dir = tmp_path / "manifests"
+    _write_manifest(manifest_dir, "diffssd", n=n, n_groups=n_groups, seed=7)
+
+    ckpt_dir = tmp_path / "checkpoints"
+    ckpt_dir.mkdir()
+    cache_root = tmp_path / "_embcache_modelspace"
+    run = "e007_A_fresh"
+    ckpt_path = ckpt_dir / f"runs_{run}_best.pt"
+    _write_synthetic_checkpoint(ckpt_path, np.random.default_rng(0).normal(size=dim), b=0.0)
+    # Deliberately WRONG checkpoint_sha256 -- simulates a naming collision
+    # or a stale cache directory pairing this run's head with a DIFFERENT
+    # checkpoint's embeddings.
+    _write_model_space_shard(cache_root / f"runs_{run}_best" / "03_DiffSSD" / "shard_0000.npz",
+                              n=n, dim=dim, corpus="diffssd", corpus_dir="03_DiffSSD", seed=99,
+                              checkpoint_sha256="sha_of_a_totally_different_checkpoint")
+
+    with pytest.raises(RuntimeError, match="MISPAIRED"):
+        main([
+            "--model-space-cache-root", str(cache_root),
+            "--manifest-dir", str(manifest_dir),
+            "--ckpt-dir", str(ckpt_dir),
+            "--checkpoints", run,
+            "--corpus", "diffssd",
+            "--factor", "generator_id",
+            "--ranks", "1", "2", "3",
+            "--n-boot", "0",
+            "--seed", "13",
+            "--out", str(tmp_path / "out.json"),
+        ])
+
+
 def test_gate_reads_modelspace_output_and_leaves_not_estimable(tmp_path, monkeypatch):
     """The definitive proof the chain is wired: scripts/run_gate.py, totally
-    unmodified, reads this sibling's output and C2/C4/C7 move OFF
-    not_estimable/pending_input (given a factor-corpus map + synthetic EERs)."""
-    out_path = _build_and_run_modelspace_cli(tmp_path, monkeypatch)
+    UNMODIFIED, reads this sibling's output and C2/C4/C6/C7 move OFF
+    not_estimable/pending_input, given a factor-corpus map + synthetic
+    EERs for all THREE checkpoints (C7 specifically requires
+    >=3 checkpoints with reliance + EER data to ever leave
+    not_estimable/pending -- criterion_7_no_collapse's own
+    `if len(rows) < 3` gate, run_gate.py line 785 -- so this must use the
+    real e007_A/B/C-style 3-checkpoint scenario, not the 2-checkpoint one
+    other tests in this file use for schema/merge checks only).
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-    import run_gate
+    THIS IS A DISCOVERY INSTRUMENT, NOT A FORMALITY (per the hardening
+    brief): if C7 ever regresses to not_estimable here, that is a real
+    finding -- the extract-consume-w-metrics-gate chain is not fully wired
+    for C7 -- and must be reported, not forced green."""
+    runs = ("e007_A_fresh", "e007_B_fresh", "e007_C_xlsr_fresh")
+    out_path = _build_and_run_modelspace_cli(tmp_path, monkeypatch, runs=runs)
 
     records, warnings = run_gate.load_phase_a_inputs([out_path])
     assert warnings == []
     assert len(records) == 1
 
-    eers = {"e007_A_fresh": {"inthewild": 0.10}, "e007_B_fresh": {"inthewild": 0.20}}
-    factor_corpus_map = {"generator_id": "inthewild"}
+    # clean_corpora (inthewild/replaydf/ai4t) for every checkpoint, per
+    # criterion_7_no_collapse's own default -- plus the generator_id factor's
+    # mapped eval corpus (reusing "replaydf", also one of the clean_corpora;
+    # harmless for this off-not_estimable check, which doesn't examine sign).
+    eers = {run: {"inthewild": 0.10 + i * 0.05, "replaydf": 0.20 + i * 0.05, "ai4t": 0.30 + i * 0.05}
+            for i, run in enumerate(runs)}
+    factor_corpus_map = {"generator_id": "replaydf"}
 
     c2 = run_gate.criterion_2_association(records, eers, factor_corpus_map)
     c4 = run_gate.criterion_4_intervention_vs_random(records)
     c6 = run_gate.criterion_6_estimator_agreement(records)
+    c7 = run_gate.criterion_7_no_collapse(records, eers, factor_corpus_map)
 
     assert c2["status"] != run_gate.STATUS_NOT_ESTIMABLE
     assert c4["status"] != run_gate.STATUS_NOT_ESTIMABLE
     assert c6["status"] in (run_gate.STATUS_PASS, run_gate.STATUS_FAIL)  # fully decided either way
+    assert c7["status"] != run_gate.STATUS_NOT_ESTIMABLE, (
+        f"C7 stayed not_estimable on the sibling's populated output -- STOP finding: "
+        f"{c7['numbers'].get('per_battery')}"
+    )
+    assert c7["status"] in (run_gate.STATUS_PASS, run_gate.STATUS_FAIL), (
+        "C7 should be fully decided (not merely pending) given 3 checkpoints' worth of "
+        f"reliance + EER data: {c7['numbers'].get('per_battery')}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# C4 READ-PATH ADJUDICATION (step3_modelspace_preextraction_gate_brief.md
+# Item 1, Task 1b). Verified against run_gate.py's REAL, current source
+# (criterion_4_intervention_vs_random, line 633 as of this writing) --
+# NOT against this sibling's own docstring, which turned out to be wrong.
+#
+# VERDICT: Case B. run_gate.py's criterion_4_intervention_vs_random reads
+# ONLY `fold["effect"]["projection_removal_control"]` (the fold level) --
+# it never iterates `per_checkpoint[ckpt]["projection_removal_control"]`
+# at all, unlike _per_checkpoint_reliance (used by C2/C7), which correctly
+# iterates every checkpoint. merge_checkpoint_estimator_results sets the
+# fold-level projection_removal_control to the PRIMARY checkpoint's value
+# only (sorted(checkpoints)[0], e.g. "e007_A_fresh") -- so in the
+# model-space regime, C4's verdict IS the alphabetically-first
+# checkpoint's causal-intervention result alone. Checkpoints B and C's
+# controls are silently discarded. This was harmless in the cache-space
+# battery (the control was checkpoint-independent by construction, so
+# fold-level == every per-checkpoint value there) and becomes a genuine
+# scientific defect here, at n=3 (soon n=6 with backbone #2): the paper's
+# per-model-instance causal claim is not what C4 actually computes.
+#
+# NOT PATCHED HERE: C4 is a pre-registered criterion (docs/gate_prereg.md);
+# changing its cross-checkpoint aggregation is a human/prereg decision,
+# not something this session makes unilaterally. RECOMMENDED FIX (gate-side
+# only, run_reliance_modelspace.py's merge already populates
+# per_checkpoint[ckpt]["projection_removal_control"] correctly for every
+# checkpoint): make criterion_4_intervention_vs_random iterate
+# per_checkpoint[ckpt]["projection_removal_control"] across ALL
+# checkpoints -- the same pattern _per_checkpoint_reliance already uses --
+# instead of the fold-level field.
+# ---------------------------------------------------------------------------
+
+
+def _make_hand_built_modelspace_battery(weak_run="ckA"):
+    """Minimal, hand-built battery record (bypassing the full crossfit
+    machinery for full, deterministic control) with 3 checkpoints whose
+    projection_removal_control GENUINELY differs: `weak_run` (the
+    PRIMARY checkpoint under merge_checkpoint_estimator_results'
+    sorted()[0] convention -- "ckA" sorts first) shows a weak/no causal
+    effect; the other two show a strong one."""
+    def weak_control():
+        return dict(true_effect=0.01, random_effects=[0.01] * 20, random_mean=0.01, random_std=0.001,
+                    task_direction_effect=0.01, exceeds_random=False)
+
+    def strong_control():
+        return dict(true_effect=0.9, random_effects=[0.05] * 20, random_mean=0.05, random_std=0.01,
+                    task_direction_effect=0.9, exceeds_random=True)
+
+    runs = ["ckA", "ckB", "ckC"]
+    controls = {run: (weak_control() if run == weak_run else strong_control()) for run in runs}
+    per_checkpoint = {
+        run: dict(alignment=0.1, r_var=0.1, prediction_change={}, prediction_change_control={},
+                  projection_removal_control=controls[run])
+        for run in runs
+    }
+    primary_run = sorted(runs)[0]  # matches merge_checkpoint_estimator_results' own convention
+
+    def make_fold():
+        return dict(fold_id=0, chosen={"k": 1}, selection_score=0.9, n_selection=10, n_effect=5,
+                    effect=dict(per_checkpoint=per_checkpoint, factor_separation_score=0.5, leace={}, inlp={},
+                                projection_removal_control=controls[primary_run]))
+
+    battery = dict(
+        name="synthetic_modelspace_battery", corpus="diffssd", factor="generator_id", grouping="source_id",
+        n_rows=100, n_levels=4, n_groups=10, grouping_degenerate=False,
+        ranks_requested=[1], ranks_valid=[1], layer_mode="model_space",
+        estimators=dict(lda=dict(fold_results=[make_fold()], status="ok", timed_out=False),
+                         probe=dict(fold_results=[make_fold()], status="ok", timed_out=False)),
+    )
+    prereg_candidate = dict(name="synthetic_modelspace_battery", headline_metric="r_var",
+                             stable_rank_window=[1], estimators_agree_sign=True, cis_overlap=True,
+                             n_groups=10, grouping_degenerate=False)
+    return [dict(battery=battery, prereg_candidate=prereg_candidate, checkpoints={}, w_metrics={}, join_stats={},
+                 source="synthetic")]
+
+
+def test_c4_current_behavior_reads_only_the_primary_checkpoint():
+    """Documents the CURRENT (Case B) behavior as it stands today: with
+    the primary checkpoint's ("ckA", alphabetically first) control
+    deliberately weak while the other two are strong, C4 currently
+    reports the WEAK verdict -- confirming it reflects ckA alone, not an
+    aggregate across all three checkpoints."""
+    records = _make_hand_built_modelspace_battery(weak_run="ckA")
+    result = run_gate.criterion_4_intervention_vs_random(records)
+    assert result["status"] == run_gate.STATUS_FAIL  # ckA's weak control, not ckB/ckC's strong ones
+
+
+@pytest.mark.xfail(reason=(
+    "STOP finding (step3_modelspace_preextraction_gate_brief.md Item 1, Task 1b, Case B): "
+    "run_gate.py's criterion_4_intervention_vs_random (line 633, as of this writing) reads ONLY "
+    "fold['effect']['projection_removal_control'] -- the merge's designated PRIMARY checkpoint "
+    "('ckA'/alphabetically-first) -- and never iterates "
+    "per_checkpoint[ckpt]['projection_removal_control'] for the other checkpoints at all. In the "
+    "model-space regime this silently discards checkpoints B and C's causal-intervention results: "
+    "C4's verdict is the alphabetically-first checkpoint's alone, at n=3 (soon n=6). C4 is a "
+    "pre-registered criterion (docs/gate_prereg.md) -- fixing the cross-checkpoint aggregation is "
+    "a human/prereg decision, not something this session patches unilaterally. RECOMMENDED FIX "
+    "(gate-side only -- run_reliance_modelspace.py's merge already populates "
+    "per_checkpoint[ckpt]['projection_removal_control'] correctly for every checkpoint, so the "
+    "consumer needs no change): make criterion_4_intervention_vs_random iterate "
+    "per_checkpoint[ckpt]['projection_removal_control'] across ALL checkpoints, the same pattern "
+    "_per_checkpoint_reliance already uses for alignment/r_var, instead of the fold-level field. "
+    "This test documents the desired (fixed) behavior and will start passing the moment that fix "
+    "is ratified and lands."
+))
+def test_c4_should_aggregate_across_all_checkpoints_once_fixed():
+    records = _make_hand_built_modelspace_battery(weak_run="ckA")
+    result = run_gate.criterion_4_intervention_vs_random(records)
+    # Under a corrected implementation, 2 of the 3 checkpoints (ckB, ckC)
+    # show a strong, controls-exceeding effect -- a majority signal, so a
+    # per-checkpoint-aggregating C4 should PASS, not reflect ckA alone.
+    assert result["status"] == run_gate.STATUS_PASS
 
 
 def test_build_parser_defaults():

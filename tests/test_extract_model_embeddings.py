@@ -363,6 +363,115 @@ def test_extract_checkpoint_corpus_resume_skips_completed_shards(tmp_path):
         np.testing.assert_array_equal(contents_before[name], contents_after[name])
 
 
+def test_extract_checkpoint_corpus_collision_guard_fires_on_different_checkpoint(tmp_path):
+    """The naming-collision fix (step3_modelspace_preextraction_gate_brief.md
+    Item 3a): if out_dir already holds a shard written for a DIFFERENT
+    checkpoint (different file bytes -> different sha256), that is not a
+    legitimate resume -- it must raise, never silently treat checkpoint
+    B's rows as checkpoint A's completed shard. This is exactly what
+    happens when two checkpoints share a filename stem (e.g. two nested
+    runs/<run>/best.pt paths) and --run-name isn't used to disambiguate."""
+    data_root = tmp_path / "data"
+    rows = _write_diffssd_rows(data_root, n=3)
+    ckpt_a = tmp_path / "ckpt_a.pt"
+    ckpt_a.write_bytes(b"checkpoint A bytes")
+    ckpt_b = tmp_path / "ckpt_b.pt"
+    ckpt_b.write_bytes(b"checkpoint B bytes -- DIFFERENT from A")
+    cfg = {"experiment": {"sample_rate": 16000, "duration_seconds": 0.5}}
+    out_dir = tmp_path / "out"  # same out_dir for both -- simulates the collision
+
+    stats_a = extract_checkpoint_corpus(
+        _FakeEmbedModel(), cfg, ckpt_a, "diffssd", rows, data_root, out_dir,
+        device="cpu", batch_size=2, shard_size=3, dtype="float32", git_sha="deadbeef",
+    )
+    assert stats_a["written"] == 1
+
+    with pytest.raises(RuntimeError, match="NAMING COLLISION"):
+        extract_checkpoint_corpus(
+            _FakeEmbedModel(), cfg, ckpt_b, "diffssd", rows, data_root, out_dir,
+            device="cpu", batch_size=2, shard_size=3, dtype="float32", git_sha="deadbeef",
+        )
+
+
+def test_extract_checkpoint_corpus_resume_still_works_for_the_same_checkpoint(tmp_path):
+    """The collision guard must not false-positive on a genuine resume:
+    same checkpoint file, same out_dir -- sha256 matches, skip as before."""
+    data_root = tmp_path / "data"
+    rows = _write_diffssd_rows(data_root, n=3)
+    ckpt = tmp_path / "ckpt.pt"
+    ckpt.write_bytes(b"same checkpoint bytes")
+    cfg = {"experiment": {"sample_rate": 16000, "duration_seconds": 0.5}}
+    out_dir = tmp_path / "out"
+
+    extract_checkpoint_corpus(_FakeEmbedModel(), cfg, ckpt, "diffssd", rows, data_root, out_dir,
+                               device="cpu", batch_size=2, shard_size=3, dtype="float32", git_sha="x")
+    stats2 = extract_checkpoint_corpus(_FakeEmbedModel(), cfg, ckpt, "diffssd", rows, data_root, out_dir,
+                                        device="cpu", batch_size=2, shard_size=3, dtype="float32", git_sha="x")
+    assert stats2["written"] == 0 and stats2["skipped"] == 1
+
+
+def test_main_run_name_keys_the_cache_directory(tmp_path, monkeypatch):
+    """--run-name, not the checkpoint path's .stem, decides the cache
+    subdirectory -- the fix for two checkpoints sharing a filename.
+    main() has no dependency-injection hook (unlike run_preflight), so the
+    real module-level _build_model_from_checkpoint is monkeypatched --
+    this is main()'s own real extraction path, exercised for real, just
+    with a fake (no-backbone) model swapped in."""
+    monkeypatch.chdir(tmp_path)
+    data_root = tmp_path / "data"
+    manifest_dir = tmp_path / "manifests"
+    rows_dicts = []
+    (data_root / "datasets" / "03_DiffSSD").mkdir(parents=True)
+    for i in range(4):
+        rel = f"datasets/03_DiffSSD/f{i}.wav"
+        sf.write(data_root / rel, (np.zeros(1600, dtype="float32") + 0.01), 16000)
+        rows_dicts.append(dict(utt_id=f"diffssd/f{i}", path=rel, target=1, corpus="diffssd",
+                                split="train", attack="na", bona_fide_source="na"))
+    _write_manifest(manifest_dir, "diffssd", rows_dicts)
+
+    # Two checkpoints that would collide on .stem ("best") without --run-name.
+    ckpt_a_dir = tmp_path / "runs" / "e007_A"
+    ckpt_b_dir = tmp_path / "runs" / "e007_B"
+    ckpt_a_dir.mkdir(parents=True)
+    ckpt_b_dir.mkdir(parents=True)
+    (ckpt_a_dir / "best.pt").write_bytes(b"checkpoint A")
+    (ckpt_b_dir / "best.pt").write_bytes(b"checkpoint B -- different bytes")
+
+    class _FakeModel:
+        binary = type("B", (), {"fc": type("FC", (), {"in_features": 9})()})()
+
+        def embed(self, waveform):
+            return torch.zeros(waveform.shape[0], 9)
+
+    def fake_build_model_fn(path, device):
+        return _FakeModel(), {"experiment": {"sample_rate": 16000, "duration_seconds": 0.5}}, {}
+
+    import extract_model_embeddings as eme
+    monkeypatch.setattr(eme, "_build_model_from_checkpoint", fake_build_model_fn)
+
+    out_root = tmp_path / "out"
+    main([
+        "--checkpoint", str(ckpt_a_dir / "best.pt"), str(ckpt_b_dir / "best.pt"),
+        "--run-name", "e007_A", "e007_B",
+        "--corpus", "diffssd", "--manifest-dir", str(manifest_dir),
+        "--data-root", str(data_root), "--out-root", str(out_root),
+    ])
+
+    assert (out_root / "e007_A" / "03_DiffSSD" / "shard_0000.npz").exists()
+    assert (out_root / "e007_B" / "03_DiffSSD" / "shard_0000.npz").exists()
+    assert not (out_root / "best").exists()  # never keyed by the colliding stem
+
+
+def test_main_run_name_count_mismatch_raises(tmp_path):
+    with pytest.raises(ValueError, match="must match 1:1"):
+        main([
+            "--checkpoint", str(tmp_path / "a.pt"), str(tmp_path / "b.pt"),
+            "--run-name", "only_one_name",
+            "--corpus", "diffssd", "--manifest-dir", str(tmp_path / "manifests"),
+            "--out-root", str(tmp_path / "out"),
+        ])
+
+
 def test_extract_checkpoint_corpus_raises_on_zero_rows(tmp_path):
     with pytest.raises(ValueError, match="0 rows"):
         extract_checkpoint_corpus(

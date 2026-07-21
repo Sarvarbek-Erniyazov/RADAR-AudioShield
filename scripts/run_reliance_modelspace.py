@@ -43,23 +43,47 @@ embedding is not a re-pooling of one shared multi-layer cache, it is a
 wholly separate space per checkpoint, so EVERY metric (not just alignment)
 needs its own per-checkpoint run.
 
-Schema-identical output, verified against scripts/run_gate.py's readers
-(_per_checkpoint_reliance, criterion_4_intervention_vs_random -- both read
-ONLY fold["effect"]["per_checkpoint"][ckpt][metric] and
-fold["effect"]["projection_removal_control"], nothing else at the fold
-level, confirmed by reading run_gate.py directly): a merged fold's
-per_checkpoint[ckpt] entry carries the standard alignment/r_var/
-prediction_change/prediction_change_control keys (identical shape to
-run_reliance_battery.py's own per-checkpoint dict) PLUS, additively, that
-checkpoint's own chosen/selection_score/factor_separation_score/leace/inlp/
-projection_removal_control (genuinely checkpoint-specific here, unlike the
-original schema where these are checkpoint-independent by construction).
-The fold-level (non-per-checkpoint) factor_separation_score/leace/inlp/
-projection_removal_control/chosen/selection_score take the designated
-PRIMARY checkpoint's own values (first in sorted order) for exact backward
-compatibility with the existing reader shape -- documented, not hidden;
-nothing existing needs the fold-level value to be checkpoint-independent,
-it just always was one before.
+Schema-identical output, verified against scripts/run_gate.py's readers by
+reading run_gate.py directly (never trust this docstring's own claim about
+another file -- step3_modelspace_preextraction_gate_brief.md Item 1 caught
+an earlier version of this paragraph doing exactly that). The two readers
+do NOT behave the same way, and that asymmetry matters:
+
+  - _per_checkpoint_reliance correctly iterates
+    fold["effect"]["per_checkpoint"][ckpt][metric] for EVERY checkpoint --
+    this is what C2/C7 (association/no-collapse) use, and it is exactly
+    right for the merged, multi-checkpoint per_checkpoint dict this module
+    produces.
+  - criterion_4_intervention_vs_random reads ONLY the FOLD-LEVEL
+    fold["effect"]["projection_removal_control"] (run_gate.py, confirmed
+    by direct read) -- it never iterates per_checkpoint[ckpt]
+    ["projection_removal_control"] at all. Since merge_checkpoint_
+    estimator_results sets that fold-level field to the designated PRIMARY
+    checkpoint's own value (first in sorted order) for schema
+    compatibility, C4's verdict in the model-space regime is the
+    alphabetically-first checkpoint's causal-intervention result ALONE --
+    checkpoints B and C's controls are silently discarded. This was
+    harmless for the cache-space battery (the control was checkpoint-
+    independent by construction there, so fold-level == every per-
+    checkpoint value) and is a genuine scientific defect here, since C4 is
+    supposed to speak to the causal criterion across model instances, not
+    one arbitrarily-chosen instance. NOT patched here: C4 is a
+    pre-registered criterion (docs/gate_prereg.md); the fix (make C4
+    iterate per_checkpoint[ckpt]["projection_removal_control"] the same
+    way _per_checkpoint_reliance already does) is gate-side only and is a
+    human/prereg decision -- see tests/test_reliance_modelspace.py's
+    test_c4_should_aggregate_across_all_checkpoints_once_fixed (xfail,
+    documents the desired behavior; converts to a passing regression test
+    the moment the fix lands).
+
+A merged fold's per_checkpoint[ckpt] entry carries the standard
+alignment/r_var/prediction_change/prediction_change_control keys
+(identical shape to run_reliance_battery.py's own per-checkpoint dict)
+PLUS, additively, that checkpoint's own chosen/selection_score/
+factor_separation_score/leace/inlp/projection_removal_control (genuinely
+checkpoint-specific here, unlike the original schema where these are
+checkpoint-independent by construction) -- this additive data is exactly
+what a corrected C4 would read.
 
 No GPU, no extraction, no backbone re-run: only binary.fc (weight 256x1 +
 bias, a cheap CPU matmul) is exercised, against ALREADY-CACHED embeddings.
@@ -88,6 +112,7 @@ Usage (once a real Phase B model-space cache exists):
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -103,10 +128,12 @@ from audioshield.reliance.metrics import r_var
 from audioshield.reliance.subspaces import lda_subspace
 from audioshield.reliance.uncertainty import grouped_bootstrap_ci, rank_sensitivity_curve
 
-# Read-only imports from run_reliance_battery.py -- that file is NEVER
-# modified by this script; every name below is reused verbatim so the two
-# consumers cannot silently diverge on the math or the output shape.
+# Read-only imports -- neither run_reliance_battery.py nor
+# extract_model_embeddings.py is ever modified by this script; every name
+# below is reused verbatim so the consumers cannot silently diverge on the
+# math, the output shape, or the checkpoint-identity hash.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from extract_model_embeddings import _sha256_file  # noqa: E402
 from run_reliance_battery import (  # noqa: E402
     BATTERIES,
     CANDIDATE_B_KEYS,
@@ -145,19 +172,32 @@ DEFAULT_MODEL_SPACE_CACHE_ROOT = "analysis/step3/_embcache_modelspace"
 # ---------------------------------------------------------------------------
 
 
-def load_model_space_embeddings(cache_root: Path, checkpoint_stem: str, corpus_dir: str) -> tuple[np.ndarray, np.ndarray]:
+def load_model_space_embeddings(
+    cache_root: Path, checkpoint_stem: str, corpus_dir: str,
+) -> tuple[np.ndarray, np.ndarray, str | None]:
     """Load every shard_*.npz under cache_root/<checkpoint_stem>/<corpus_dir>/
     -- Phase B's real, 2-D (n, embedding_dim) shape (extract_model_embeddings.py),
     NOT the 3-D (n, n_layers, D) shape load_corpus_embeddings expects (the
     exact confusion docs/phaseB_extraction_preflight_findings.md identifies
     as the consumption gap's root cause -- guarded against explicitly here,
-    not just assumed away)."""
+    not just assumed away).
+
+    Also returns the shard(s)' recorded `checkpoint_sha256` (None if a
+    shard's meta doesn't parse or the key is absent) -- the caller
+    verifies this against the ACTUAL checkpoint file's own sha256 before
+    trusting the (embedding, head) pairing (see main()'s pairing guard).
+    Every shard under this directory must agree on checkpoint_sha256 --
+    they are all supposed to be the same checkpoint's output; a
+    disagreement here means shards from two different extraction runs
+    were mixed into one directory, caught explicitly rather than silently
+    averaged together."""
     shard_dir = cache_root / checkpoint_stem / corpus_dir
     shard_paths = sorted(shard_dir.glob("shard_*.npz"))
     if not shard_paths:
         raise FileNotFoundError(f"no shard_*.npz files found under {shard_dir}")
     all_paths: list[np.ndarray] = []
     all_emb: list[np.ndarray] = []
+    checkpoint_sha256: str | None = None
     for shard_path in shard_paths:
         with np.load(shard_path, allow_pickle=True) as data:
             emb = data["emb"]
@@ -169,10 +209,22 @@ def load_model_space_embeddings(cache_root: Path, checkpoint_stem: str, corpus_d
                 )
             all_paths.append(data["paths"])
             all_emb.append(emb.astype(np.float32))
-    return np.concatenate(all_paths), np.concatenate(all_emb, axis=0)
+            try:
+                shard_sha = json.loads(str(data["meta"])).get("checkpoint_sha256")
+            except Exception:
+                shard_sha = None
+        if checkpoint_sha256 is None:
+            checkpoint_sha256 = shard_sha
+        elif shard_sha is not None and shard_sha != checkpoint_sha256:
+            raise ValueError(
+                f"{shard_path}: checkpoint_sha256={shard_sha!r} disagrees with an earlier shard's "
+                f"{checkpoint_sha256!r} under the same {shard_dir} -- shards from two different "
+                "extraction runs appear to be mixed into one cache directory"
+            )
+    return np.concatenate(all_paths), np.concatenate(all_emb, axis=0), checkpoint_sha256
 
 
-def load_checkpoint_head(ckpt_path: Path) -> tuple[np.ndarray, float, int]:
+def load_checkpoint_head(ckpt_path: Path) -> tuple[np.ndarray, float, int, str]:
     """Load a checkpoint's final linear classifier weight and bias --
     binary.fc.weight / binary.fc.bias (confirmed exact attribute path,
     docs/phaseB_extraction_preflight_findings.md §1), via the SAME
@@ -180,7 +232,15 @@ def load_checkpoint_head(ckpt_path: Path) -> tuple[np.ndarray, float, int]:
     uses (CANDIDATE_W_KEYS/CANDIDATE_B_KEYS, imported not duplicated) --
     but without that function's layer-center-mismatch logic, which does
     not apply here: embed()'s pooled+projected output has no "layer" at
-    all, so there is nothing to compare a requested layer against."""
+    all, so there is nothing to compare a requested layer against.
+
+    Also returns the checkpoint FILE's own sha256 (via
+    extract_model_embeddings._sha256_file, the SAME hash function that
+    computed the value stored in every shard's meta.checkpoint_sha256) --
+    this is the other half of the pairing guarantee: the caller compares
+    this against load_model_space_embeddings' returned checkpoint_sha256
+    before trusting that this w and that Z came from the same trained
+    model."""
     sd = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     state = sd.get("model", sd) if isinstance(sd, dict) else sd
     w_key = _find_key(state, CANDIDATE_W_KEYS)
@@ -189,7 +249,7 @@ def load_checkpoint_head(ckpt_path: Path) -> tuple[np.ndarray, float, int]:
     w = state[w_key].squeeze().float().cpu().numpy()
     b_key = _find_key(state, CANDIDATE_B_KEYS)
     b = float(state[b_key].squeeze().float().cpu().item()) if b_key is not None else 0.0
-    return w, b, int(w.shape[0])
+    return w, b, int(w.shape[0]), _sha256_file(ckpt_path)
 
 
 # ---------------------------------------------------------------------------
@@ -458,8 +518,9 @@ def main(argv=None) -> None:
         if not ckpt_path.exists():
             _log(f"[WARN] {ckpt_path}: not found -- skipping checkpoint {run!r}")
             continue
-        w, b, w_dim = load_checkpoint_head(ckpt_path)
-        checkpoint_heads[run] = dict(w=w, b=b, w_dim=w_dim, checkpoint_stem=ckpt_path.stem)
+        w, b, w_dim, ckpt_sha256 = load_checkpoint_head(ckpt_path)
+        checkpoint_heads[run] = dict(w=w, b=b, w_dim=w_dim, checkpoint_stem=ckpt_path.stem,
+                                      checkpoint_sha256=ckpt_sha256)
     if not checkpoint_heads:
         raise ValueError("no checkpoints loaded -- nothing to do")
 
@@ -483,10 +544,37 @@ def main(argv=None) -> None:
         factor_ref = y_ref = groups_ref = utt_ids_ref = None
         for run, head in checkpoint_heads.items():
             try:
-                cache_paths, cache_emb = load_model_space_embeddings(cache_root, head["checkpoint_stem"], corpus_dir)
+                cache_paths, cache_emb, cache_sha256 = load_model_space_embeddings(
+                    cache_root, head["checkpoint_stem"], corpus_dir
+                )
             except FileNotFoundError as e:
                 _log(f"[WARN] {spec['name']}: {e} -- skipping checkpoint {run!r} for this battery")
                 continue
+            # THE PAIRING GUARANTEE (Item 3b): dimension-matching (both sides
+            # 256-d) cannot catch a mispaired (embedding, head) -- checkpoint
+            # A's head could be paired with checkpoint B's cache and both
+            # would still be 256-d. This is the cryptographic guard that
+            # catches it regardless of naming: the shard's OWN recorded
+            # checkpoint_sha256 (written by extract_model_embeddings.py from
+            # the checkpoint FILE it actually extracted, not a placeholder)
+            # must equal THIS run's checkpoint file's own sha256, computed
+            # independently here via the same _sha256_file function.
+            if cache_sha256 is None:
+                raise RuntimeError(
+                    f"{run}/{corpus}: the model-space cache under {cache_root / head['checkpoint_stem'] / corpus_dir} "
+                    "has no recorded checkpoint_sha256 (missing/unparseable meta) -- refusing to pair an "
+                    "unverified embedding cache with this checkpoint's head"
+                )
+            if cache_sha256 != head["checkpoint_sha256"]:
+                raise RuntimeError(
+                    f"{run}/{corpus}: MISPAIRED (embedding, head) -- the model-space cache under "
+                    f"{cache_root / head['checkpoint_stem'] / corpus_dir} was extracted from a checkpoint with "
+                    f"sha256={cache_sha256[:16]}..., but the head loaded for run {run!r} "
+                    f"({ckpt_dir / f'runs_{run}_best.pt'}) has sha256={head['checkpoint_sha256'][:16]}... -- "
+                    "refusing to ablate a factor subspace from an embedding paired with a different "
+                    "checkpoint's classifier weight (this would produce a finite, plausible, and "
+                    "scientifically meaningless number)"
+                )
             joined_df, joined_emb, stats = join_cache_to_manifest(cache_paths, cache_emb, manifest_df, corpus_dir)
             join_stats[run] = stats
             if head["w_dim"] != joined_emb.shape[1]:

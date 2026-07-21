@@ -26,10 +26,21 @@ corpora through model.embed() under torch.no_grad(), batched, sharded to
 .npz with the SAME (paths, emb) key schema as the existing XLS-R-300M
 cache, plus a "meta" entry (JSON-encoded: checkpoint sha256, model config
 hash, git sha, dtype). One output directory per checkpoint
-(<out-root>/<checkpoint-stem>/<corpus-dir>/shard_*.npz), since embed() is
-checkpoint-specific. Shard writes are atomic (temp file + rename), so an
-existing shard_*.npz is always complete and is never recomputed on
-rerun (resume). Asserts non-zero rows per corpus before writing anything.
+(<out-root>/<run-name>/<corpus-dir>/shard_*.npz), since embed() is
+checkpoint-specific -- <run-name> is --run-name's entry for this
+checkpoint (an explicit, deliberately-chosen identifier), or that
+checkpoint path's own .stem if --run-name wasn't given. THE STEM FALLBACK
+COLLIDES for checkpoints sharing a filename (e.g. runs/e007_A/best.pt and
+runs/e007_B/best.pt both stem to "best" -- pass --run-name explicitly
+whenever checkpoints share a filename, as in the usage example below).
+Even under a collision, extract_checkpoint_corpus's checkpoint_sha256
+guard refuses to treat one checkpoint's shard as another's completed
+resume -- it raises rather than silently mixing embeddings from two
+different checkpoints under one directory. Shard writes are atomic (temp
+file + rename), so an existing shard_*.npz is always complete and is
+never recomputed on rerun (resume, once its checkpoint_sha256 is
+confirmed to match). Asserts non-zero rows per corpus before writing
+anything.
 
 Usage:
     python scripts/extract_model_embeddings.py --preflight \
@@ -37,7 +48,9 @@ Usage:
         --corpus diffssd replaydf vctk --data-root ..
 
     python scripts/extract_model_embeddings.py \
-        --checkpoint runs/e007_A/best.pt --corpus diffssd replaydf vctk \
+        --checkpoint runs/e007_A/best.pt runs/e007_B/best.pt \
+        --run-name e007_A e007_B \
+        --corpus diffssd replaydf vctk \
         --data-root .. --out-root analysis/step3/_embcache_modelspace
 """
 from __future__ import annotations
@@ -341,6 +354,19 @@ def _write_shard_atomic(shard_path: Path, paths: np.ndarray, emb: np.ndarray, me
     os.replace(tmp_path, shard_path)
 
 
+def _read_shard_checkpoint_sha256(shard_path: Path) -> str | None:
+    """Reads just the `checkpoint_sha256` field out of an existing shard's
+    meta, for the collision guard below. Returns None if the shard can't
+    be read as a valid shard at all (caller treats that as "can't verify,
+    don't trust an existing directory here either")."""
+    try:
+        with np.load(shard_path, allow_pickle=True) as data:
+            meta = json.loads(str(data["meta"]))
+        return meta.get("checkpoint_sha256")
+    except Exception:
+        return None
+
+
 def extract_checkpoint_corpus(
     model,
     cfg: dict,
@@ -359,7 +385,13 @@ def extract_checkpoint_corpus(
     shard_{i:04d}.npz with the same (paths, emb) key schema as the existing
     XLS-R-300M cache, plus a "meta" entry. A shard file that already exists
     on disk is assumed complete (writes are atomic, see _write_shard_atomic)
-    and is skipped without re-running the model on it (resume)."""
+    and is skipped without re-running the model on it (resume) -- UNLESS its
+    recorded checkpoint_sha256 doesn't match the checkpoint being extracted
+    now, in which case this is not a resume, it's a NAMING COLLISION (two
+    different checkpoints mapped to the same out_dir, e.g. two nested
+    runs/<run>/best.pt paths sharing the stem "best") -- fail loud rather
+    than silently treat checkpoint B's rows as checkpoint A's completed
+    shard."""
     if not rows:
         raise ValueError(f"{corpus}: 0 rows -- refusing to write an empty cache")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -377,8 +409,18 @@ def extract_checkpoint_corpus(
         shard_path = out_dir / f"shard_{shard_i:04d}.npz"
         shard_rows = rows[shard_i * shard_size: (shard_i + 1) * shard_size]
         if shard_path.exists():
+            existing_sha = _read_shard_checkpoint_sha256(shard_path)
+            if existing_sha is not None and existing_sha != ckpt_sha:
+                raise RuntimeError(
+                    f"{shard_path}: NAMING COLLISION -- this shard was written for a checkpoint "
+                    f"with sha256={existing_sha[:16]}..., but the checkpoint being extracted now "
+                    f"({ckpt_path}) has sha256={ckpt_sha[:16]}... -- refusing to silently treat one "
+                    "checkpoint's cached embeddings as another's. Pass a distinct --run-name (or "
+                    "--out-root) for this checkpoint, or verify out_dir isn't shared by mistake."
+                )
             skipped += 1
-            print(f"[resume] {shard_path}: already complete, skipping ({len(shard_rows)} rows)")
+            print(f"[resume] {shard_path}: already complete (checkpoint sha256 matches), "
+                  f"skipping ({len(shard_rows)} rows)")
             continue
 
         ds = UnifiedAudioDataset(
@@ -420,6 +462,13 @@ def extract_checkpoint_corpus(
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", nargs="+", required=True, type=Path, help="one or more checkpoint .pt paths")
+    ap.add_argument("--run-name", nargs="+", default=None,
+                     help="explicit cache-directory identifier per --checkpoint, same order/count. "
+                          "Defaults to each checkpoint path's own .stem, which COLLIDES for checkpoints "
+                          "sharing a filename (e.g. runs/e007_A_fresh/best.pt and runs/e007_B_fresh/best.pt "
+                          "both stem to \"best\") -- pass this explicitly (e.g. e007_A_fresh e007_B_fresh) "
+                          "whenever checkpoints share a filename. A collision is still caught (never silently "
+                          "corrupted) by the checkpoint_sha256 guard in extract_checkpoint_corpus regardless.")
     ap.add_argument("--corpus", nargs="+", required=True, help="corpus names matching <manifest-dir>/<corpus>.csv")
     ap.add_argument("--manifest-dir", default=DEFAULT_MANIFEST_DIR)
     ap.add_argument("--data-root", default="..", help="dataset root containing datasets/<CORPUS_DIR>/... "
@@ -450,9 +499,14 @@ def main(argv=None) -> None:
         print_preflight_table(results)
         sys.exit(0 if all(r.passed for r in results) else 1)
 
+    if args.run_name is not None and len(args.run_name) != len(args.checkpoint):
+        raise ValueError(f"--run-name given {len(args.run_name)} name(s) but --checkpoint has "
+                          f"{len(args.checkpoint)} path(s) -- must match 1:1, never partially guessed")
+    run_names = args.run_name if args.run_name is not None else [p.stem for p in args.checkpoint]
+
     git_sha = _git_sha()
-    for ckpt_path in args.checkpoint:
-        print(f"[checkpoint] {ckpt_path}")
+    for ckpt_path, run_name in zip(args.checkpoint, run_names):
+        print(f"[checkpoint] {ckpt_path} (run_name={run_name!r})")
         model, cfg, _sd = _build_model_from_checkpoint(ckpt_path, args.device)
         for corpus in args.corpus:
             rows = read_manifest(manifest_dir / f"{corpus}.csv", splits=args.split)
@@ -460,8 +514,8 @@ def main(argv=None) -> None:
                 raise ValueError(f"{corpus}: 0 rows matched (manifest_dir={manifest_dir}, split={args.split}) "
                                   f"-- refusing to write an empty cache")
             rows = sorted(rows, key=lambda r: r.utt_id)
-            out_dir = out_root / ckpt_path.stem / _corpus_dir_from_rows(rows)
-            print(f"[extract] checkpoint={ckpt_path.stem} corpus={corpus} n_rows={len(rows)} -> {out_dir}")
+            out_dir = out_root / run_name / _corpus_dir_from_rows(rows)
+            print(f"[extract] run_name={run_name} corpus={corpus} n_rows={len(rows)} -> {out_dir}")
             stats = extract_checkpoint_corpus(
                 model, cfg, ckpt_path, corpus, rows, data_root, out_dir, args.device,
                 args.batch_size, args.shard_size, args.dtype, git_sha,
