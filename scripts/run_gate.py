@@ -50,6 +50,19 @@ yet." An overall three-outcome classification (see docs/gate_prereg.md §3)
 is emitted only when every criterion has resolved to pass/fail -- i.e. none
 are pending_input or not_estimable.
 
+A fourth, PER-BATTERY-only status, "excluded", covers real Phase A output
+that is itself an OPERATIONAL failure (a bootstrap that timed out, an
+estimator that never produced, a battery whose whole prereg_candidate
+summary is the `{"name":..., "skipped": "..."}` shape
+`summarize_prereg_candidate` returns for a skipped/failed battery) --
+never a scientific fact about reliance. FAIL is reserved for a genuine
+decided negative on data that DID complete; an excluded battery is dropped
+from a criterion's evidence entirely (neither pass nor fail) rather than
+silently defaulting to a fail-shaped value (see `_aggregate_battery_statuses`).
+A criterion with at least one genuinely decided (pass/fail) battery
+resolves from those alone; one with only excluded/pending/not_estimable
+batteries resolves to not_estimable or pending_input, never fail.
+
 Follows the heartbeat/flush/incremental-output/exit-0 conventions already
 established in scripts/run_reliance_battery.py: every stage is timestamped
 and printed with flush=True; the verdict file is always written (temp file
@@ -79,6 +92,7 @@ STATUS_PASS = "pass"
 STATUS_FAIL = "fail"
 STATUS_PENDING = "pending_input"
 STATUS_NOT_ESTIMABLE = "not_estimable"
+STATUS_EXCLUDED = "excluded"
 
 DEFAULT_PHASE_B_OUT_ROOT = Path("analysis/step3/_embcache_modelspace")
 DEFAULT_VERDICT_OUT = Path("analysis/step4/gate_verdict.json")
@@ -122,6 +136,59 @@ def _criterion(status: str, evidence: str, numbers: dict | None = None) -> dict:
     return dict(status=status, evidence=evidence, numbers=numbers or {})
 
 
+def _is_candidate_skipped(cand: dict) -> bool:
+    """True for the shape scripts/run_reliance_battery.py's own
+    summarize_prereg_candidate returns for a battery that was itself
+    skipped or failed at the whole-battery level: {"name": ..., "skipped":
+    "<reason>"} -- none of the normal fields (stable_rank_window,
+    estimators_agree_sign, n_groups, ...) are present at all in that shape,
+    so treating a missing field as False/[] would silently manufacture a
+    fail out of an operational gap."""
+    return bool(cand.get("skipped"))
+
+
+def _aggregate_battery_statuses(per_battery_status: dict[str, str]) -> str:
+    """Combine each battery's own status into one overall criterion
+    status. A battery marked STATUS_EXCLUDED or STATUS_PENDING never turns
+    a criterion FAIL by itself -- FAIL is reserved for at least one
+    battery whose OWN result is a genuinely decided (pass/fail) negative.
+    Excluded/pending batteries are simply dropped from the evidence tally;
+    they don't count as passes either. Only when NO battery reached a
+    decided pass/fail does the overall status fall back to not_estimable
+    (if any battery is not_estimable) or pending_input (otherwise) --
+    matching this module's existing not_estimable/pending_input
+    distinction one level up."""
+    decided = {k: v for k, v in per_battery_status.items() if v in (STATUS_PASS, STATUS_FAIL)}
+    if decided:
+        return STATUS_FAIL if any(v == STATUS_FAIL for v in decided.values()) else STATUS_PASS
+    statuses = set(per_battery_status.values())
+    if not statuses:
+        return STATUS_PENDING
+    if STATUS_NOT_ESTIMABLE in statuses:
+        return STATUS_NOT_ESTIMABLE
+    return STATUS_PENDING
+
+
+def _lookup_factor_corpus(factor_corpus_map: dict, corpus: str | None, factor: str | None,
+                           used_keys: set | None = None) -> str | None:
+    """Resolves an eval corpus for a battery's (corpus, factor) pair.
+    Supports three key shapes in `factor_corpus_map`, checked in order:
+    (1) an exact (corpus, factor) tuple key -- for two batteries that
+    share a factor but need DIFFERENT scored corpora (e.g. diffssd's and
+    replaydf's generator_id batteries); (2) a (None, factor) wildcard-corpus
+    tuple key -- one eval corpus for this factor regardless of battery
+    corpus; (3) a bare factor string key -- the original, single-corpus-map
+    convenience shape, kept for backward compatibility. If `used_keys` is
+    passed, the matched key is added to it -- callers use this to warn
+    about factor_corpus_map entries that never matched any battery."""
+    for key in ((corpus, factor), (None, factor), factor):
+        if key in factor_corpus_map:
+            if used_keys is not None:
+                used_keys.add(key)
+            return factor_corpus_map[key]
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Phase A loading -- normalizes both real on-disk shapes to one internal
 # representation: a list of battery records.
@@ -150,22 +217,60 @@ def load_phase_a_file(path: Path) -> list[dict]:
     records = []
     if "battery" in raw and "prereg_candidate" in raw:
         records.append(dict(battery=raw["battery"], prereg_candidate=raw["prereg_candidate"],
-                             source=str(path), **shared))
+                             source=str(path), source_shape="standalone", **shared))
     elif "batteries" in raw and "prereg_candidates" in raw:
         cand_by_name = {c["name"]: c for c in raw["prereg_candidates"] if "name" in c}
         for b in raw["batteries"]:
             records.append(dict(battery=b, prereg_candidate=cand_by_name.get(b.get("name"), {}),
-                                 source=str(path), **shared))
+                                 source=str(path), source_shape="manifest", **shared))
     else:
         raise ValueError(f"{path}: unrecognized Phase A schema -- no 'battery'/'prereg_candidate' "
                           "or 'batteries'/'prereg_candidates' keys found")
     return records
 
 
+def _dedupe_battery_records(records: list[dict]) -> tuple[list[dict], list[str]]:
+    """A user may pass both a manifest (--out file, batteries inline) and
+    one of its own standalone per-battery files (battery_files entries) in
+    the same --phase-a invocation -- without deduping, that battery would
+    be counted twice by every criterion's per-battery tally. Keeps the
+    standalone per-battery copy over the manifest's inline copy (the more
+    specific source); warns, rather than silently overwriting, when the
+    two copies actually disagree on content (never expected in practice --
+    both are supposed to be the same battery result -- but a silent
+    overwrite on a genuine conflict is exactly the kind of thing this
+    project's discipline exists to avoid)."""
+    by_name: dict[str, dict] = {}
+    warnings: list[str] = []
+    for rec in records:
+        name = rec["battery"].get("name")
+        if name is None:
+            warnings.append(f"a battery record from {rec.get('source')} has no 'name' -- skipped")
+            continue
+        if name not in by_name:
+            by_name[name] = rec
+            continue
+        existing = by_name[name]
+        if existing["battery"] != rec["battery"] or existing["prereg_candidate"] != rec["prereg_candidate"]:
+            warnings.append(
+                f"battery {name!r} appears more than once across --phase-a inputs with DIFFERING "
+                f"content ({existing['source']} vs {rec['source']}) -- keeping the standalone "
+                "per-battery copy if one of the two is standalone, else the first one seen"
+            )
+        else:
+            warnings.append(f"battery {name!r} appears more than once across --phase-a inputs "
+                             f"(identical content, {existing['source']} vs {rec['source']}) -- deduped")
+        if rec.get("source_shape") == "standalone" and existing.get("source_shape") != "standalone":
+            by_name[name] = rec
+    return list(by_name.values()), warnings
+
+
 def load_phase_a_inputs(paths: list[Path]) -> tuple[list[dict], list[str]]:
     """Best-effort load of every --phase-a path. A path that doesn't exist
     or fails to parse is recorded as a warning and skipped, never crashes
-    the run."""
+    the run. Battery records are deduped by name across every path
+    combined (see _dedupe_battery_records) -- a duplicate never inflates a
+    criterion's per-battery tally."""
     records, warnings = [], []
     for p in paths:
         p = Path(p)
@@ -176,7 +281,8 @@ def load_phase_a_inputs(paths: list[Path]) -> tuple[list[dict], list[str]]:
             records.extend(load_phase_a_file(p))
         except Exception as exc:
             warnings.append(f"phase-a input {p} failed to load: {exc}")
-    return records, warnings
+    deduped, dedupe_warnings = _dedupe_battery_records(records)
+    return deduped, warnings + dedupe_warnings
 
 
 # ---------------------------------------------------------------------------
@@ -370,18 +476,32 @@ def criterion_1_replication(primary: list[dict], secondary: list[dict]) -> dict:
 
 
 def criterion_2_association(records: list[dict], eers: dict[str, dict[str, float]],
-                             factor_corpus_map: dict[str, str]) -> dict:
+                             factor_corpus_map: dict) -> dict:
+    """factor_corpus_map is keyed as described by _lookup_factor_corpus:
+    (corpus, factor) tuples for a corpus-specific mapping (needed once
+    e.g. diffssd's and replaydf's generator_id batteries need DIFFERENT
+    scored corpora), (None, factor) tuples for a corpus-agnostic
+    fallback, or bare factor strings (legacy, single-corpus convenience).
+    Every map key actually used is tracked so unused keys (a likely typo)
+    are reported in `numbers["unmatched_factor_corpus_map_keys"]`."""
     if not records:
         return _criterion(STATUS_PENDING, "no Phase A battery input provided")
     per_battery = {}
+    used_keys = set()
     for rec in records:
         battery = rec["battery"]
+        name = battery["name"]
+        cand = rec.get("prereg_candidate", {})
+        if _is_candidate_skipped(cand):
+            per_battery[name] = dict(status=STATUS_EXCLUDED, reason=f"battery skipped: {cand.get('skipped')}")
+            continue
         factor = battery.get("factor")
-        eval_corpus = factor_corpus_map.get(factor)
+        corpus = battery.get("corpus")
+        eval_corpus = _lookup_factor_corpus(factor_corpus_map, corpus, factor, used_keys)
         if eval_corpus is None:
-            per_battery[battery["name"]] = dict(
+            per_battery[name] = dict(
                 status=STATUS_PENDING,
-                reason=f"no factor-corpus mapping supplied for factor={factor!r} -- see "
+                reason=f"no factor-corpus mapping supplied for corpus={corpus!r}/factor={factor!r} -- see "
                        "docs/gate_prereg.md §4 ambiguity 2 (diffssd is dev-tier-for-thresholding "
                        "only, never itself EER-scored by cross_test.py)",
             )
@@ -400,7 +520,7 @@ def criterion_2_association(records: list[dict], eers: dict[str, dict[str, float
                 continue
             pairs.append((ckpt_name, rel["value"], eer))
         if len(pairs) < 2:
-            per_battery[battery["name"]] = dict(
+            per_battery[name] = dict(
                 status=STATUS_NOT_ESTIMABLE if any_not_estimable else STATUS_PENDING,
                 reason="fewer than 2 checkpoints have both an estimable reliance value and a "
                        f"matching EER on {eval_corpus!r}" + (" (reliance not_estimable: w-dim mismatch, "
@@ -410,25 +530,19 @@ def criterion_2_association(records: list[dict], eers: dict[str, dict[str, float
             continue
         reliances = np.array([p[1] for p in pairs])
         target_eers = np.array([p[2] for p in pairs])
-        corr = float(np.corrcoef(reliances, target_eers)[0, 1]) if np.std(reliances) > 0 and np.std(target_eers) > 0 else float("nan")
+        corr = (float(np.corrcoef(reliances, target_eers)[0, 1])
+                if np.std(reliances) > 0 and np.std(target_eers) > 0 else float("nan"))
         positive = np.isfinite(corr) and corr > 0
-        per_battery[battery["name"]] = dict(
+        per_battery[name] = dict(
             status=STATUS_PASS if positive else (STATUS_FAIL if np.isfinite(corr) else STATUS_PENDING),
             correlation=corr, pairs=pairs, eval_corpus=eval_corpus,
         )
-    if not per_battery:
-        return _criterion(STATUS_PENDING, "no batteries produced a comparable pair")
-    statuses = {v["status"] for v in per_battery.values()}
-    if statuses <= {STATUS_PASS}:
-        overall = STATUS_PASS
-    elif STATUS_FAIL in statuses:
-        overall = STATUS_FAIL
-    elif STATUS_NOT_ESTIMABLE in statuses and STATUS_PENDING not in statuses:
-        overall = STATUS_NOT_ESTIMABLE
-    else:
-        overall = STATUS_PENDING
-    return _criterion(overall, f"per-battery association results: { {k: v['status'] for k, v in per_battery.items()} }",
-                       dict(per_battery=per_battery))
+    overall = _aggregate_battery_statuses({k: v["status"] for k, v in per_battery.items()})
+    unmatched = sorted(str(k) for k in factor_corpus_map if k not in used_keys)
+    return _criterion(
+        overall, f"per-battery association results: { {k: v['status'] for k, v in per_battery.items()} }",
+        dict(per_battery=per_battery, unmatched_factor_corpus_map_keys=unmatched),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -437,28 +551,48 @@ def criterion_2_association(records: list[dict], eers: dict[str, dict[str, float
 
 
 def criterion_3_grouped_bootstrap(records: list[dict], min_n_boot: int = 1000, min_n_groups: int = 8) -> dict:
+    """A battery whose bootstrap task itself failed/timed out
+    (`headline_bootstrap.status != "ok"`, e.g. the real
+    {status:"failed", error:..., timed_out:true, stage:"bootstrap"} shape
+    scripts/run_reliance_battery.py's worker-timeout path produces -- no
+    lo/hi/mean/n_boot/n_groups keys at all in that shape) is an OPERATIONAL
+    gap, not a scientific fact about that battery's CIs -- excluded from
+    this criterion's evidence, never counted as a fail. Same for a battery
+    whose whole prereg_candidate is the skipped/failed-battery shape."""
     if not records:
         return _criterion(STATUS_PENDING, "no Phase A battery input provided")
     per_battery = {}
     for rec in records:
         battery = rec["battery"]
+        name = battery["name"]
         boot = battery.get("headline_bootstrap", {})
         cand = rec.get("prereg_candidate", {})
+        if _is_candidate_skipped(cand) or "n_groups" not in cand:
+            per_battery[name] = dict(status=STATUS_EXCLUDED,
+                                       reason=f"prereg_candidate missing/skipped: {cand.get('skipped', 'no n_groups key')}")
+            continue
+        if boot.get("status") != "ok":
+            per_battery[name] = dict(status=STATUS_EXCLUDED,
+                                       reason=f"headline_bootstrap not ok (status={boot.get('status')!r}, "
+                                              f"error={boot.get('error')!r}) -- operational, not a CI failure")
+            continue
         ok = (
-            boot.get("status") == "ok"
-            and boot.get("n_boot", 0) >= min_n_boot
+            boot.get("n_boot", 0) >= min_n_boot
             and cand.get("n_groups", 0) >= min_n_groups
             and cand.get("grouping_degenerate") is False
         )
-        per_battery[battery["name"]] = dict(
-            pass_=bool(ok), n_boot=boot.get("n_boot"), n_groups=cand.get("n_groups"),
-            grouping_degenerate=cand.get("grouping_degenerate"), boot_status=boot.get("status"),
+        per_battery[name] = dict(
+            status=STATUS_PASS if ok else STATUS_FAIL, n_boot=boot.get("n_boot"),
+            n_groups=cand.get("n_groups"), grouping_degenerate=cand.get("grouping_degenerate"),
         )
-    all_pass = all(v["pass_"] for v in per_battery.values())
+    overall = _aggregate_battery_statuses({k: v["status"] for k, v in per_battery.items()})
+    n_pass = sum(v["status"] == STATUS_PASS for v in per_battery.values())
+    n_decided = sum(v["status"] in (STATUS_PASS, STATUS_FAIL) for v in per_battery.values())
     return _criterion(
-        STATUS_PASS if all_pass else STATUS_FAIL,
-        f"{sum(v['pass_'] for v in per_battery.values())}/{len(per_battery)} batteries have a usable "
-        f"grouped bootstrap (status=ok, n_boot>={min_n_boot}, n_groups>={min_n_groups}, non-degenerate grouping)",
+        overall,
+        f"{n_pass}/{n_decided} decided batteries have a usable grouped bootstrap "
+        f"(status=ok, n_boot>={min_n_boot}, n_groups>={min_n_groups}, non-degenerate grouping); "
+        f"{len(per_battery) - n_decided} excluded/operational-gap",
         dict(per_battery=per_battery),
     )
 
@@ -486,8 +620,15 @@ def criterion_4_intervention_vs_random(records: list[dict], min_fraction: float 
     per_battery = {}
     for rec in records:
         battery = rec["battery"]
+        name = battery["name"]
+        cand = rec.get("prereg_candidate", {})
+        if _is_candidate_skipped(cand):
+            per_battery[name] = dict(status=STATUS_EXCLUDED, reason=f"battery skipped: {cand.get('skipped')}")
+            continue
         main_flags, control_flags, control_any_not_estimable = [], [], False
         for estimator in battery.get("estimators", {}).values():
+            if estimator.get("status") != "ok":
+                continue  # a failed estimator contributes no fold_results anyway; explicit for clarity
             for fold in estimator.get("fold_results", []):
                 prc = fold.get("effect", {}).get("projection_removal_control", {})
                 if "exceeds_random" in prc:
@@ -508,19 +649,11 @@ def criterion_4_intervention_vs_random(records: list[dict], min_fraction: float 
             status = STATUS_NOT_ESTIMABLE
         else:
             status = STATUS_PENDING
-        per_battery[battery["name"]] = dict(
+        per_battery[name] = dict(
             status=status, main_exceeds_random_fraction=main_fraction, n_main_folds=len(main_flags),
             n_control_folds_estimable=len(control_flags),
         )
-    statuses = {v["status"] for v in per_battery.values()}
-    if statuses <= {STATUS_PASS}:
-        overall = STATUS_PASS
-    elif STATUS_FAIL in statuses:
-        overall = STATUS_FAIL
-    elif STATUS_NOT_ESTIMABLE in statuses and STATUS_PENDING not in statuses:
-        overall = STATUS_NOT_ESTIMABLE
-    else:
-        overall = STATUS_PENDING
+    overall = _aggregate_battery_statuses({k: v["status"] for k, v in per_battery.items()})
     return _criterion(overall, "per-battery main-effect-vs-random and positive-control results",
                        dict(per_battery=per_battery))
 
@@ -531,19 +664,37 @@ def criterion_4_intervention_vs_random(records: list[dict], min_fraction: float 
 
 
 def criterion_5_rank_stability(records: list[dict]) -> dict:
+    """A battery whose prereg_candidate is the skipped/failed-battery shape
+    (no `stable_rank_window` key at all) or whose own `rank_sensitivity`
+    task didn't complete (`status != "ok"`) never gets its rank-curve
+    computed -- an operational gap, excluded from this criterion, never a
+    manufactured fail from treating the missing field as an empty window."""
     if not records:
         return _criterion(STATUS_PENDING, "no Phase A battery input provided")
     per_battery = {}
     for rec in records:
+        battery = rec["battery"]
+        name = battery["name"]
         cand = rec.get("prereg_candidate", {})
-        window = cand.get("stable_rank_window", [])
+        rank_sensitivity = battery.get("rank_sensitivity", {})
+        if _is_candidate_skipped(cand) or "stable_rank_window" not in cand:
+            per_battery[name] = dict(status=STATUS_EXCLUDED,
+                                       reason=f"prereg_candidate missing/skipped: {cand.get('skipped', 'no stable_rank_window key')}")
+            continue
+        if rank_sensitivity.get("status") not in (None, "ok"):
+            per_battery[name] = dict(status=STATUS_EXCLUDED,
+                                       reason=f"rank_sensitivity not ok (status={rank_sensitivity.get('status')!r})")
+            continue
+        window = cand["stable_rank_window"]
         ok = len(window) >= 2 and 1 in window
-        per_battery[rec["battery"]["name"]] = dict(pass_=bool(ok), stable_rank_window=window)
-    all_pass = all(v["pass_"] for v in per_battery.values())
+        per_battery[name] = dict(status=STATUS_PASS if ok else STATUS_FAIL, stable_rank_window=window)
+    overall = _aggregate_battery_statuses({k: v["status"] for k, v in per_battery.items()})
+    n_pass = sum(v["status"] == STATUS_PASS for v in per_battery.values())
+    n_decided = sum(v["status"] in (STATUS_PASS, STATUS_FAIL) for v in per_battery.values())
     return _criterion(
-        STATUS_PASS if all_pass else STATUS_FAIL,
-        f"{sum(v['pass_'] for v in per_battery.values())}/{len(per_battery)} batteries have a stable "
-        "rank window (>=2 consecutive ranks, including headline rank 1)",
+        overall,
+        f"{n_pass}/{n_decided} decided batteries have a stable rank window (>=2 consecutive ranks, "
+        f"including headline rank 1); {len(per_battery) - n_decided} excluded/operational-gap",
         dict(per_battery=per_battery),
     )
 
@@ -554,17 +705,44 @@ def criterion_5_rank_stability(records: list[dict]) -> dict:
 
 
 def criterion_6_estimator_agreement(records: list[dict]) -> dict:
+    """`prereg_candidate.estimators_agree_sign` is `False` both when the two
+    estimators genuinely disagree in sign AND when one of them never
+    produced a result at all (summarize_prereg_candidate's own
+    _mean_headline_metric returns nan for an empty fold_results list, and
+    nan-vs-anything is unconditionally treated as disagreement upstream) --
+    these are NOT the same thing, and only the first is a scientific
+    negative. Checking each estimator's own `status` field directly (a real
+    field on the fixtures: battery.estimators.{lda,probe}.status) is the
+    only way to tell them apart; a failed estimator excludes the battery
+    from this criterion instead of reporting a fabricated disagreement."""
     if not records:
         return _criterion(STATUS_PENDING, "no Phase A battery input provided")
-    per_battery = {
-        rec["battery"]["name"]: bool(rec.get("prereg_candidate", {}).get("estimators_agree_sign", False))
-        for rec in records
-    }
-    all_agree = all(per_battery.values())
+    per_battery = {}
+    for rec in records:
+        battery = rec["battery"]
+        name = battery["name"]
+        cand = rec.get("prereg_candidate", {})
+        if _is_candidate_skipped(cand) or "estimators_agree_sign" not in cand:
+            per_battery[name] = dict(status=STATUS_EXCLUDED,
+                                       reason=f"prereg_candidate missing/skipped: {cand.get('skipped', 'no estimators_agree_sign key')}")
+            continue
+        estimators = battery.get("estimators", {})
+        bad_estimators = [est_name for est_name in ("lda", "probe")
+                          if estimators.get(est_name, {}).get("status") != "ok"]
+        if bad_estimators:
+            per_battery[name] = dict(status=STATUS_EXCLUDED,
+                                       reason=f"estimator(s) {bad_estimators} did not complete (status != 'ok') "
+                                              "-- agreement can't be assessed, not a genuine disagreement")
+            continue
+        agree = bool(cand["estimators_agree_sign"])
+        per_battery[name] = dict(status=STATUS_PASS if agree else STATUS_FAIL, estimators_agree_sign=agree)
+    overall = _aggregate_battery_statuses({k: v["status"] for k, v in per_battery.items()})
+    n_pass = sum(v["status"] == STATUS_PASS for v in per_battery.values())
+    n_decided = sum(v["status"] in (STATUS_PASS, STATUS_FAIL) for v in per_battery.values())
     return _criterion(
-        STATUS_PASS if all_agree else STATUS_FAIL,
-        f"{sum(per_battery.values())}/{len(per_battery)} batteries show estimators_agree_sign=True "
-        "(LDA-subspace vs cross-fitted linear-probe)",
+        overall,
+        f"{n_pass}/{n_decided} decided batteries show estimators_agree_sign=True "
+        f"(LDA-subspace vs cross-fitted linear-probe); {len(per_battery) - n_decided} excluded/operational-gap",
         dict(per_battery=per_battery),
     )
 
@@ -576,14 +754,22 @@ def criterion_6_estimator_agreement(records: list[dict]) -> dict:
 
 
 def criterion_7_no_collapse(records: list[dict], eers: dict[str, dict[str, float]],
-                             factor_corpus_map: dict[str, str], clean_corpora: tuple[str, ...] = ("inthewild", "replaydf", "ai4t")) -> dict:
+                             factor_corpus_map: dict, clean_corpora: tuple[str, ...] = ("inthewild", "replaydf", "ai4t")) -> dict:
+    """factor_corpus_map keying: see _lookup_factor_corpus / criterion_2_association."""
     if not records:
         return _criterion(STATUS_PENDING, "no Phase A battery input provided")
     per_battery = {}
+    used_keys = set()
     for rec in records:
         battery = rec["battery"]
+        name = battery["name"]
+        cand = rec.get("prereg_candidate", {})
+        if _is_candidate_skipped(cand):
+            per_battery[name] = dict(status=STATUS_EXCLUDED, reason=f"battery skipped: {cand.get('skipped')}")
+            continue
         factor = battery.get("factor")
-        eval_corpus = factor_corpus_map.get(factor)
+        corpus = battery.get("corpus")
+        eval_corpus = _lookup_factor_corpus(factor_corpus_map, corpus, factor, used_keys)
         reliance = _per_checkpoint_reliance(battery, metric="alignment")
         rows = []
         any_not_estimable = any(r["status"] == STATUS_NOT_ESTIMABLE for r in reliance.values())
@@ -597,7 +783,7 @@ def criterion_7_no_collapse(records: list[dict], eers: dict[str, dict[str, float
             rows.append(dict(ckpt=ckpt_name, reliance=rel["value"], clean_eer=float(np.mean(clean_vals)),
                               target_eer=ckpt_eers[eval_corpus]))
         if len(rows) < 3:
-            per_battery[battery["name"]] = dict(
+            per_battery[name] = dict(
                 status=STATUS_NOT_ESTIMABLE if any_not_estimable else STATUS_PENDING,
                 reason=f"need >=3 checkpoints with reliance + clean EER + target-corpus EER, have {len(rows)}",
                 rows=rows,
@@ -606,33 +792,30 @@ def criterion_7_no_collapse(records: list[dict], eers: dict[str, dict[str, float
         reliance_arr = np.array([r["reliance"] for r in rows])
         clean_arr = np.array([r["clean_eer"] for r in rows])
         target_arr = np.array([r["target_eer"] for r in rows])
-        raw_sign = np.sign(np.corrcoef(reliance_arr, target_arr)[0, 1]) if np.std(reliance_arr) > 0 else 0.0
+        # Both sides must vary -- np.corrcoef on a constant array raises a
+        # RuntimeWarning (divide by zero in the correlation formula) and
+        # returns nan; checking only reliance_arr's variance (the original
+        # bug here) let a constant target_arr (e.g. every checkpoint has
+        # the identical target-corpus EER) slip a warning through.
+        raw_sign = (np.sign(np.corrcoef(reliance_arr, target_arr)[0, 1])
+                    if np.std(reliance_arr) > 0 and np.std(target_arr) > 0 else 0.0)
         design = np.column_stack([np.ones_like(clean_arr), clean_arr])
         coef, *_ = np.linalg.lstsq(design, reliance_arr, rcond=None)
         reliance_resid = reliance_arr - design @ coef
         resid_sign = (np.sign(np.corrcoef(reliance_resid, target_arr)[0, 1])
-                      if np.std(reliance_resid) > 1e-12 else 0.0)
+                      if np.std(reliance_resid) > 1e-12 and np.std(target_arr) > 0 else 0.0)
         survives = bool(raw_sign != 0 and raw_sign == resid_sign)
-        per_battery[battery["name"]] = dict(
+        per_battery[name] = dict(
             status=STATUS_PASS if survives else STATUS_FAIL,
             raw_sign=float(raw_sign), residual_sign=float(resid_sign), n_checkpoints=len(rows), rows=rows,
         )
-    if not per_battery:
-        return _criterion(STATUS_PENDING, "no batteries produced enough checkpoints to residualize")
-    statuses = {v["status"] for v in per_battery.values()}
-    if statuses <= {STATUS_PASS}:
-        overall = STATUS_PASS
-    elif STATUS_FAIL in statuses:
-        overall = STATUS_FAIL
-    elif STATUS_NOT_ESTIMABLE in statuses and STATUS_PENDING not in statuses:
-        overall = STATUS_NOT_ESTIMABLE
-    else:
-        overall = STATUS_PENDING
+    overall = _aggregate_battery_statuses({k: v["status"] for k, v in per_battery.items()})
+    unmatched = sorted(str(k) for k in factor_corpus_map if k not in used_keys)
     return _criterion(
         overall,
         "clean-EER-residualized sign-survival per battery (n=3-ish checkpoints -- descriptive, "
         "not a powered significance test; see docs/gate_prereg.md §4 ambiguity 3)",
-        dict(per_battery=per_battery),
+        dict(per_battery=per_battery, unmatched_factor_corpus_map_keys=unmatched),
     )
 
 
@@ -748,6 +931,9 @@ def run_gate(
     )
     for name, c in criteria.items():
         _log(f"gate: {name} -> {c['status']}")
+        unmatched = c.get("numbers", {}).get("unmatched_factor_corpus_map_keys")
+        if unmatched:
+            warnings.append(f"{name}: factor_corpus_map entries {unmatched} matched no battery -- possible typo")
 
     overall = classify_overall(criteria)
     _log(f"gate: overall classification = {overall!r}")
@@ -769,13 +955,23 @@ def run_gate(
     )
 
 
-def _parse_factor_corpus_map(raw: list[str] | None) -> dict[str, str]:
+def _parse_factor_corpus_map(raw: list[str] | None) -> dict:
+    """Parses --factor-corpus-map entries into the keying
+    _lookup_factor_corpus expects: "corpus:factor=eval_corpus" -> a
+    (corpus, factor) tuple key (for two batteries sharing a factor across
+    different corpora, needing different eval corpora); plain
+    "factor=eval_corpus" -> a bare-factor-string key (legacy, corpus-
+    agnostic convenience, still honored)."""
     out = {}
     for item in raw or []:
         if "=" not in item:
-            raise argparse.ArgumentTypeError(f"expected factor=corpus, got {item!r}")
-        factor, corpus = item.split("=", 1)
-        out[factor] = corpus
+            raise argparse.ArgumentTypeError(f"expected factor=corpus or corpus:factor=corpus, got {item!r}")
+        key, eval_corpus = item.split("=", 1)
+        if ":" in key:
+            corpus, factor = key.split(":", 1)
+            out[(corpus, factor)] = eval_corpus
+        else:
+            out[key] = eval_corpus
     return out
 
 
@@ -792,8 +988,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--head-replicates", type=Path, default=None,
                     help="JSON produced by scripts/head_replicates.py, for criterion 8")
     ap.add_argument("--factor-corpus-map", nargs="+", default=None,
-                    help="factor=corpus pairs mapping a battery's factor to an EER-scored corpus "
-                         "that shares it, for criteria 2 and 7 (e.g. language=inthewild)")
+                    help="factor=corpus (corpus-agnostic) or corpus:factor=corpus (corpus-specific, "
+                         "needed when two batteries share a factor but need different scored corpora) "
+                         "pairs mapping a battery's factor to an EER-scored corpus that shares it, for "
+                         "criteria 2 and 7 (e.g. language=inthewild or diffssd:generator_id=inthewild)")
     ap.add_argument("--out", type=Path, default=DEFAULT_VERDICT_OUT, help="verdict JSON output path")
     return ap
 
