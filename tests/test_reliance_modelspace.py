@@ -643,41 +643,139 @@ def _make_hand_built_modelspace_battery(weak_run="ckA"):
 
 
 def test_c4_current_behavior_reads_only_the_primary_checkpoint():
-    """Documents the CURRENT (Case B) behavior as it stands today: with
-    the primary checkpoint's ("ckA", alphabetically first) control
-    deliberately weak while the other two are strong, C4 currently
-    reports the WEAK verdict -- confirming it reflects ckA alone, not an
-    aggregate across all three checkpoints."""
+    """Historical note, kept post-fix: this documented the PRE-FIX bug
+    (C4 read only fold['effect']['projection_removal_control'], the
+    primary checkpoint's value) with the primary ("ckA") deliberately weak
+    while the other two are strong. The assertion below still holds
+    post-fix, but no longer for that reason -- it now holds because
+    docs/gate_prereg.md's ratified UNANIMOUS rule fails the whole battery
+    whenever ANY checkpoint fails, including the primary itself; this
+    fixture doesn't by itself distinguish "buggy, reads only ckA" from
+    "fixed, unanimous across all three" (both produce FAIL here). See
+    test_c4_should_aggregate_across_all_checkpoints_once_fixed and
+    test_c4_fails_when_a_non_primary_checkpoint_fails_even_if_primary_passes
+    below for the fixtures that actually discriminate the two."""
     records = _make_hand_built_modelspace_battery(weak_run="ckA")
     result = run_gate.criterion_4_intervention_vs_random(records)
-    assert result["status"] == run_gate.STATUS_FAIL  # ckA's weak control, not ckB/ckC's strong ones
+    assert result["status"] == run_gate.STATUS_FAIL  # ckA's weak control fails the whole battery either way
 
 
-@pytest.mark.xfail(reason=(
-    "STOP finding (step3_modelspace_preextraction_gate_brief.md Item 1, Task 1b, Case B): "
-    "run_gate.py's criterion_4_intervention_vs_random (line 633, as of this writing) reads ONLY "
-    "fold['effect']['projection_removal_control'] -- the merge's designated PRIMARY checkpoint "
-    "('ckA'/alphabetically-first) -- and never iterates "
-    "per_checkpoint[ckpt]['projection_removal_control'] for the other checkpoints at all. In the "
-    "model-space regime this silently discards checkpoints B and C's causal-intervention results: "
-    "C4's verdict is the alphabetically-first checkpoint's alone, at n=3 (soon n=6). C4 is a "
-    "pre-registered criterion (docs/gate_prereg.md) -- fixing the cross-checkpoint aggregation is "
-    "a human/prereg decision, not something this session patches unilaterally. RECOMMENDED FIX "
-    "(gate-side only -- run_reliance_modelspace.py's merge already populates "
-    "per_checkpoint[ckpt]['projection_removal_control'] correctly for every checkpoint, so the "
-    "consumer needs no change): make criterion_4_intervention_vs_random iterate "
-    "per_checkpoint[ckpt]['projection_removal_control'] across ALL checkpoints, the same pattern "
-    "_per_checkpoint_reliance already uses for alignment/r_var, instead of the fold-level field. "
-    "This test documents the desired (fixed) behavior and will start passing the moment that fix "
-    "is ratified and lands."
-))
 def test_c4_should_aggregate_across_all_checkpoints_once_fixed():
+    """FIXED (step3_modelspace_hardening_addendum.md's follow-on;
+    docs/gate_prereg.md's 2026-07-22 C4 amendment): criterion_4_intervention_
+    vs_random now iterates per_checkpoint[ckpt]['projection_removal_control']
+    for every checkpoint, applying the RATIFIED rule -- UNANIMOUS, not the
+    majority rule this test originally assumed before that amendment was
+    written. With the PRIMARY checkpoint ("ckA") itself weak and the other
+    two strong, unanimity means the whole battery still FAILS: ckA alone is
+    sufficient to fail it, the same verdict the pre-fix, primary-only bug
+    would have produced for this particular fixture -- by coincidence, not
+    because the fix is exercised (reading only ckA and requiring ckA-too
+    agree whenever ckA is the one that's weak). This fixture is kept,
+    updated to the ratified rule, as the "primary's own failure is
+    sufficient" baseline case; test_c4_fails_when_a_non_primary_checkpoint_
+    fails_even_if_primary_passes immediately below is the fixture that
+    actually discriminates the historical bug (primary PASSES, a
+    non-primary fails) from the fixed implementation."""
     records = _make_hand_built_modelspace_battery(weak_run="ckA")
     result = run_gate.criterion_4_intervention_vs_random(records)
-    # Under a corrected implementation, 2 of the 3 checkpoints (ckB, ckC)
-    # show a strong, controls-exceeding effect -- a majority signal, so a
-    # per-checkpoint-aggregating C4 should PASS, not reflect ckA alone.
+    assert result["status"] == run_gate.STATUS_FAIL
+    per_battery = result["numbers"]["per_battery"]["synthetic_modelspace_battery"]
+    per_ckpt = per_battery["per_checkpoint"]
+    assert set(per_ckpt) == {"ckA", "ckB", "ckC"}
+    assert per_ckpt["ckA"]["status"] == run_gate.STATUS_FAIL
+    assert per_ckpt["ckB"]["status"] == run_gate.STATUS_PASS
+    assert per_ckpt["ckC"]["status"] == run_gate.STATUS_PASS
+    assert per_battery["verdict_summary"] == "ckA fail, ckB pass, ckC pass"
+
+
+def test_c4_fails_when_a_non_primary_checkpoint_fails_even_if_primary_passes():
+    """THE test that actually discriminates the historical bug from the
+    fix: primary ("ckA") and ckC both show a strong causal effect, but ckB
+    (non-primary) is weak. The pre-fix bug read ONLY
+    fold['effect']['projection_removal_control'], which
+    merge_checkpoint_estimator_results sets to the PRIMARY's value -- since
+    ckA is strong, the bug would report PASS here, silently discarding
+    ckB's failure entirely (the exact defect
+    step3_modelspace_hardening_addendum.md's follow-on documents). The
+    fixed, unanimous implementation must FAIL, because it actually reads
+    ckB's own control."""
+    records = _make_hand_built_modelspace_battery(weak_run="ckB")
+    result = run_gate.criterion_4_intervention_vs_random(records)
+    assert result["status"] == run_gate.STATUS_FAIL
+    per_ckpt = result["numbers"]["per_battery"]["synthetic_modelspace_battery"]["per_checkpoint"]
+    assert per_ckpt["ckA"]["status"] == run_gate.STATUS_PASS
+    assert per_ckpt["ckB"]["status"] == run_gate.STATUS_FAIL
+    assert per_ckpt["ckC"]["status"] == run_gate.STATUS_PASS
+
+
+def test_c4_passes_when_all_checkpoints_pass():
+    records = _make_hand_built_modelspace_battery(weak_run=None)  # matches no run -> every control is strong
+    result = run_gate.criterion_4_intervention_vs_random(records)
     assert result["status"] == run_gate.STATUS_PASS
+    per_battery = result["numbers"]["per_battery"]["synthetic_modelspace_battery"]
+    per_ckpt = per_battery["per_checkpoint"]
+    assert set(per_ckpt) == {"ckA", "ckB", "ckC"}
+    assert all(v["status"] == run_gate.STATUS_PASS for v in per_ckpt.values())
+    assert all(v["control_source"] == "per_checkpoint" for v in per_ckpt.values())
+    assert per_battery["verdict_summary"] == "ckA pass, ckB pass, ckC pass"
+
+
+def _make_hand_built_cachespace_battery():
+    """Cache-space-shaped fixture: per_checkpoint entries carry NO
+    projection_removal_control key at all -- matching the REAL cache-space
+    fixture's shape (tests/fixtures/step3/
+    reliance_layer9_boot_diffssd_openvoicev2_accent_by_speaker.json,
+    confirmed by direct read: per_checkpoint[ckpt] there has only
+    alignment/r_var/ckpt_layer_center/layer_pooling/prediction_change/
+    prediction_change_control/r_var_class_conditional/w_layer_mismatch --
+    projection_removal_control lives ONLY at the fold level, since the
+    causal control predates Phase B and was checkpoint-independent by
+    construction). Every checkpoint must fall back to that shared
+    fold-level value."""
+    runs = ["ckA", "ckB", "ckC"]
+    fold_level_control = dict(true_effect=0.9, random_effects=[0.05] * 20, random_mean=0.05, random_std=0.01,
+                               task_direction_effect=0.9, exceeds_random=True)
+    per_checkpoint = {
+        run: dict(alignment=0.1, r_var=0.1, prediction_change={}, prediction_change_control={})
+        for run in runs
+    }
+
+    def make_fold():
+        return dict(fold_id=0, chosen={"k": 1}, selection_score=0.9, n_selection=10, n_effect=5,
+                    effect=dict(per_checkpoint=per_checkpoint, factor_separation_score=0.5, leace={}, inlp={},
+                                projection_removal_control=fold_level_control))
+
+    battery = dict(
+        name="synthetic_cachespace_battery", corpus="diffssd", factor="generator_id", grouping="source_id",
+        n_rows=100, n_levels=4, n_groups=10, grouping_degenerate=False,
+        ranks_requested=[1], ranks_valid=[1], layer_mode="fixed",
+        estimators=dict(lda=dict(fold_results=[make_fold()], status="ok", timed_out=False),
+                         probe=dict(fold_results=[make_fold()], status="ok", timed_out=False)),
+    )
+    prereg_candidate = dict(name="synthetic_cachespace_battery", headline_metric="r_var",
+                             stable_rank_window=[1], estimators_agree_sign=True, cis_overlap=True,
+                             n_groups=10, grouping_degenerate=False)
+    return [dict(battery=battery, prereg_candidate=prereg_candidate, checkpoints={}, w_metrics={}, join_stats={},
+                 source="synthetic")]
+
+
+def test_c4_falls_back_to_fold_level_control_in_the_cache_space_regime():
+    """Backward-compatibility regression: a battery whose per_checkpoint
+    entries have no projection_removal_control key at all (the cache-space
+    regime, predating Phase B) must still evaluate correctly via the
+    fold-level fallback -- and must record that it did, per checkpoint and
+    at the battery level, as control_source="fold_level_fallback", so the
+    regime is never ambiguous in a results file."""
+    records = _make_hand_built_cachespace_battery()
+    result = run_gate.criterion_4_intervention_vs_random(records)
+    assert result["status"] == run_gate.STATUS_PASS
+    per_battery = result["numbers"]["per_battery"]["synthetic_cachespace_battery"]
+    per_ckpt = per_battery["per_checkpoint"]
+    assert set(per_ckpt) == {"ckA", "ckB", "ckC"}
+    assert all(v["status"] == run_gate.STATUS_PASS for v in per_ckpt.values())
+    assert all(v["control_source"] == "fold_level_fallback" for v in per_ckpt.values())
+    assert per_battery["control_source"] == "fold_level_fallback"
 
 
 def test_build_parser_defaults():
