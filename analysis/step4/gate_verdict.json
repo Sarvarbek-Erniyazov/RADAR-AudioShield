@@ -1,0 +1,285 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-22T13:21:57.302Z",
+  "inputs": {
+    "phase_a_paths": [
+      "analysis\\step3\\reliance_modelspace_fast_replaydf_language_by_channel.json",
+      "analysis\\step3\\reliance_modelspace_gen_rdf_replaydf_generator_by_channel.json"
+    ],
+    "secondary_backbone_paths": [],
+    "eer_paths": [
+      "experiments\\e007\\e007_A_fresh_crosstest.json",
+      "experiments\\e007\\e007_B_fresh_crosstest.json",
+      "experiments\\e007\\e007_C_xlsr_fresh_crosstest.json"
+    ],
+    "phase_b_out_root": "analysis\\step3\\_embcache_modelspace",
+    "head_replicates_path": null
+  },
+  "warnings": [],
+  "phase_b_cache_status": {
+    "e007_A_fresh/replaydf": {
+      "status": "pending_input",
+      "path": "analysis\\step3\\_embcache_modelspace\\e007_A_fresh\\replaydf",
+      "reason": "no Phase B embedding cache directory at analysis\\step3\\_embcache_modelspace\\e007_A_fresh\\replaydf -- run scripts/extract_model_embeddings.py for this checkpoint/corpus (collaborator GPU machine)"
+    },
+    "e007_B_fresh/replaydf": {
+      "status": "pending_input",
+      "path": "analysis\\step3\\_embcache_modelspace\\e007_B_fresh\\replaydf",
+      "reason": "no Phase B embedding cache directory at analysis\\step3\\_embcache_modelspace\\e007_B_fresh\\replaydf -- run scripts/extract_model_embeddings.py for this checkpoint/corpus (collaborator GPU machine)"
+    },
+    "e007_C_xlsr_fresh/replaydf": {
+      "status": "pending_input",
+      "path": "analysis\\step3\\_embcache_modelspace\\e007_C_xlsr_fresh\\replaydf",
+      "reason": "no Phase B embedding cache directory at analysis\\step3\\_embcache_modelspace\\e007_C_xlsr_fresh\\replaydf -- run scripts/extract_model_embeddings.py for this checkpoint/corpus (collaborator GPU machine)"
+    }
+  },
+  "criteria": {
+    "C1": {
+      "status": "pending_input",
+      "evidence": "no second-backbone (WavLM-Large) battery input provided -- pass --phase-a-secondary-backbone once the collaborator machine's WavLM-Large embedding pass produces it",
+      "numbers": {}
+    },
+    "C2": {
+      "status": "fail",
+      "evidence": "per-battery association results: {'replaydf_language_by_channel': 'pass', 'replaydf_generator_by_channel': 'fail'}",
+      "numbers": {
+        "per_battery": {
+          "replaydf_language_by_channel": {
+            "status": "pass",
+            "correlation": 0.12070263606932555,
+            "pairs": [
+              [
+                "e007_A_fresh",
+                1.464335475530142e-07,
+                0.3327217125382263
+              ],
+              [
+                "e007_B_fresh",
+                0.00024854758276504597,
+                0.32763761467889907
+              ],
+              [
+                "e007_C_xlsr_fresh",
+                0.00015836531206246408,
+                0.45298165137614677
+              ]
+            ],
+            "eval_corpus": "replaydf"
+          },
+          "replaydf_generator_by_channel": {
+            "status": "fail",
+            "correlation": -0.39934152868073175,
+            "pairs": [
+              [
+                "e007_A_fresh",
+                2.291805208644511e-07,
+                0.3327217125382263
+              ],
+              [
+                "e007_B_fresh",
+                0.0004939684507548032,
+                0.32763761467889907
+              ],
+              [
+                "e007_C_xlsr_fresh",
+                7.880761736763788e-05,
+                0.45298165137614677
+              ]
+            ],
+            "eval_corpus": "replaydf"
+          }
+        },
+        "unmatched_factor_corpus_map_keys": []
+      }
+    },
+    "C3": {
+      "status": "fail",
+      "evidence": "0/2 decided batteries have a usable grouped bootstrap (status=ok, n_boot>=1000, n_groups>=8, non-degenerate grouping); 0 excluded/operational-gap",
+      "numbers": {
+        "per_battery": {
+          "replaydf_language_by_channel": {
+            "status": "fail",
+            "n_boot": 50,
+            "n_groups": 109,
+            "grouping_degenerate": false
+          },
+          "replaydf_generator_by_channel": {
+            "status": "fail",
+            "n_boot": 50,
+            "n_groups": 109,
+            "grouping_degenerate": false
+          }
+        }
+      }
+    },
+    "C4": {
+      "status": "fail",
+      "evidence": "per-checkpoint main-effect-vs-random and positive-control results, UNANIMOUS across checkpoints (docs/gate_prereg.md C4 amendment, 2026-07-22) -- see per_battery[name].per_checkpoint for each checkpoint's own verdict and per_battery[name].verdict_summary for a legible pass/fail breakdown",
+      "numbers": {
+        "per_battery": {
+          "replaydf_language_by_channel": {
+            "status": "fail",
+            "main_exceeds_random_fraction": 0.0,
+            "n_main_folds": 10,
+            "n_control_folds_estimable": 10,
+            "per_checkpoint": {
+              "e007_A_fresh": {
+                "status": "fail",
+                "main_exceeds_random_fraction": 0.0,
+                "n_main_folds": 10,
+                "n_control_folds_estimable": 10,
+                "control_source": "per_checkpoint"
+              },
+              "e007_B_fresh": {
+                "status": "fail",
+                "main_exceeds_random_fraction": 0.0,
+                "n_main_folds": 10,
+                "n_control_folds_estimable": 10,
+                "control_source": "per_checkpoint"
+              },
+              "e007_C_xlsr_fresh": {
+                "status": "fail",
+                "main_exceeds_random_fraction": 0.0,
+                "n_main_folds": 10,
+                "n_control_folds_estimable": 10,
+                "control_source": "per_checkpoint"
+              }
+            },
+            "control_source": "per_checkpoint",
+            "verdict_summary": "e007_A_fresh fail, e007_B_fresh fail, e007_C_xlsr_fresh fail"
+          },
+          "replaydf_generator_by_channel": {
+            "status": "fail",
+            "main_exceeds_random_fraction": 0.0,
+            "n_main_folds": 10,
+            "n_control_folds_estimable": 10,
+            "per_checkpoint": {
+              "e007_A_fresh": {
+                "status": "fail",
+                "main_exceeds_random_fraction": 0.0,
+                "n_main_folds": 10,
+                "n_control_folds_estimable": 10,
+                "control_source": "per_checkpoint"
+              },
+              "e007_B_fresh": {
+                "status": "fail",
+                "main_exceeds_random_fraction": 0.0,
+                "n_main_folds": 10,
+                "n_control_folds_estimable": 10,
+                "control_source": "per_checkpoint"
+              },
+              "e007_C_xlsr_fresh": {
+                "status": "fail",
+                "main_exceeds_random_fraction": 0.0,
+                "n_main_folds": 10,
+                "n_control_folds_estimable": 10,
+                "control_source": "per_checkpoint"
+              }
+            },
+            "control_source": "per_checkpoint",
+            "verdict_summary": "e007_A_fresh fail, e007_B_fresh fail, e007_C_xlsr_fresh fail"
+          }
+        }
+      }
+    },
+    "C5": {
+      "status": "fail",
+      "evidence": "0/2 decided batteries have a stable rank window (>=2 consecutive ranks, including headline rank 1); 0 excluded/operational-gap",
+      "numbers": {
+        "per_battery": {
+          "replaydf_language_by_channel": {
+            "status": "fail",
+            "stable_rank_window": []
+          },
+          "replaydf_generator_by_channel": {
+            "status": "fail",
+            "stable_rank_window": []
+          }
+        }
+      }
+    },
+    "C6": {
+      "status": "pass",
+      "evidence": "2/2 decided batteries show estimators_agree_sign=True (LDA-subspace vs cross-fitted linear-probe); 0 excluded/operational-gap",
+      "numbers": {
+        "per_battery": {
+          "replaydf_language_by_channel": {
+            "status": "pass",
+            "estimators_agree_sign": true
+          },
+          "replaydf_generator_by_channel": {
+            "status": "pass",
+            "estimators_agree_sign": true
+          }
+        }
+      }
+    },
+    "C7": {
+      "status": "fail",
+      "evidence": "clean-EER-residualized sign-survival per battery (n=3-ish checkpoints -- descriptive, not a powered significance test; see docs/gate_prereg.md \u00a74 ambiguity 3)",
+      "numbers": {
+        "per_battery": {
+          "replaydf_language_by_channel": {
+            "status": "pass",
+            "raw_sign": 1.0,
+            "residual_sign": 1.0,
+            "n_checkpoints": 3,
+            "rows": [
+              {
+                "ckpt": "e007_A_fresh",
+                "reliance": 1.464335475530142e-07,
+                "clean_eer": 0.25656856473464634,
+                "target_eer": 0.3327217125382263
+              },
+              {
+                "ckpt": "e007_B_fresh",
+                "reliance": 0.00024854758276504597,
+                "clean_eer": 0.23572939412529048,
+                "target_eer": 0.32763761467889907
+              },
+              {
+                "ckpt": "e007_C_xlsr_fresh",
+                "reliance": 0.00015836531206246408,
+                "clean_eer": 0.33245325705456047,
+                "target_eer": 0.45298165137614677
+              }
+            ]
+          },
+          "replaydf_generator_by_channel": {
+            "status": "fail",
+            "raw_sign": -1.0,
+            "residual_sign": 1.0,
+            "n_checkpoints": 3,
+            "rows": [
+              {
+                "ckpt": "e007_A_fresh",
+                "reliance": 2.291805208644511e-07,
+                "clean_eer": 0.25656856473464634,
+                "target_eer": 0.3327217125382263
+              },
+              {
+                "ckpt": "e007_B_fresh",
+                "reliance": 0.0004939684507548032,
+                "clean_eer": 0.23572939412529048,
+                "target_eer": 0.32763761467889907
+              },
+              {
+                "ckpt": "e007_C_xlsr_fresh",
+                "reliance": 7.880761736763788e-05,
+                "clean_eer": 0.33245325705456047,
+                "target_eer": 0.45298165137614677
+              }
+            ]
+          }
+        },
+        "unmatched_factor_corpus_map_keys": []
+      }
+    },
+    "C8": {
+      "status": "pending_input",
+      "evidence": "no head-replicate result file provided -- run scripts/head_replicates.py against the real cached embeddings (collaborator machine) and pass --head-replicates",
+      "numbers": {}
+    }
+  },
+  "overall_classification": null
+}
