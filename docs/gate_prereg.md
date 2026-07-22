@@ -159,6 +159,53 @@ data available today) and `..._control.task_direction_effect` (currently
 `pending_input` until Phase B model-space embeddings exist, since
 task-direction removal needs `w` in the same space as the embeddings).
 
+#### Amendment (2026-07-22) — multi-checkpoint aggregation rule
+
+**Reason this amendment exists:** the C4 threshold above was drafted blind
+to Phase B (§0), and at the time `projection_removal_control` was
+checkpoint-independent by construction — one causal-intervention result
+covered the whole battery, so aggregation across checkpoints was not a
+question this document needed to answer. The Phase B model-space consumer
+(`scripts/run_reliance_modelspace.py`) makes the causal intervention and
+its equal-norm random control genuinely checkpoint-specific for the first
+time (each checkpoint gets its own subspace fit, its own intervention, its
+own random-subspace draws) — the original wording above is silent on how
+to combine several independent per-checkpoint verdicts into one criterion
+verdict. This amendment resolves that silence only; it does not revisit
+the fold-level 2σ bar, the >=50%-of-folds majority for the main effect, or
+the all-estimable-folds bar for the positive control above, all of which
+are unchanged and now apply *within* each checkpoint's own folds.
+
+**Rule: UNANIMOUS / ALL-MUST-PASS across checkpoints.** C4 passes only if
+**every** checkpoint's own causal-intervention effect exceeds its own
+equal-norm random-subspace control by the margin already defined above,
+for every checkpoint present in the battery — not a majority of
+checkpoints, and not a single designated/primary checkpoint. One
+checkpoint failing its own bar fails C4 for the whole battery, regardless
+of how strongly the other checkpoints pass.
+
+**Per-checkpoint verdicts must be reported individually, alongside the
+aggregate.** A bare pass/fail boolean is not sufficient once the verdict
+depends on several independent checkpoints — the gate output must show
+each checkpoint's own verdict next to the aggregate (e.g. "C4 FAIL:
+e007_A pass, e007_B pass, e007_C fail"), so a failure is legible as one
+instance-specific result, never an unexplained boolean.
+
+**Justification for unanimity over majority:** C4 is the causal criterion
+(as distinct from C2's correlational one). An intervention effect present
+in one training run but absent in others is evidence the effect is a
+property of that specific instance — initialization, seed, training
+idiosyncrasy — not a property of the phenomenon the roadmap is asking
+about, and this document already commits (§0/§1) to never treating a
+single-instance result as decisive. Unanimity is also mechanically the
+*strictest* available cross-checkpoint rule: requiring every checkpoint to
+pass can only make C4 harder to satisfy than a majority or any-checkpoint
+rule would, never easier. Adopting the strictest available rule at exactly
+the moment this criterion first becomes able to distinguish "true for this
+checkpoint" from "true for the phenomenon" is the conservative choice — it
+cannot manufacture a false pass, only correctly withhold one until every
+available checkpoint agrees.
+
 ### C5 — Rank stability
 
 > Verbatim: "rank stability."

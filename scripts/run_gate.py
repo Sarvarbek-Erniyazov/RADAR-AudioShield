@@ -614,7 +614,38 @@ def criterion_4_intervention_vs_random(records: list[dict], min_fraction: float 
     (the real accent battery) -- `task_direction_effect` never carries its
     own `exceeds_random` key, so the positive control's own exceeds-random
     flag has to be computed here from the same random_mean/random_std the
-    main effect uses."""
+    main effect uses.
+
+    AMENDED (docs/gate_prereg.md's 2026-07-22 C4 amendment): the verdict is
+    UNANIMOUS across checkpoints -- every checkpoint's own
+    per_checkpoint[ckpt].projection_removal_control (populated by
+    run_reliance_modelspace.py's merge_checkpoint_estimator_results for
+    every checkpoint, the same field _per_checkpoint_reliance already
+    reads for C2/C7) must independently clear the same main-effect-majority/
+    positive-control-unanimity bars documented above, scoped to that
+    checkpoint's own folds; one checkpoint failing fails the whole battery,
+    regardless of how strongly the others pass. A checkpoint whose own
+    per_checkpoint entry has no projection_removal_control key at all (the
+    cache-space regime, where the control was checkpoint-independent by
+    construction) falls back to the fold-level
+    fold['effect']['projection_removal_control'] instead -- every
+    checkpoint then shares that one value, which reproduces the pre-
+    amendment fold-level-only computation exactly. Which path was used is
+    recorded per checkpoint (and, if uniform across the battery, once at
+    the battery level too) as `control_source`, so the regime is never
+    ambiguous in a results file. `per_checkpoint[ckpt]` verdicts are
+    reported individually alongside the aggregate so a failure reads as
+    e.g. "e007_A pass, e007_B pass, e007_C fail", never a bare boolean.
+    The battery-level `main_exceeds_random_fraction`/`n_main_folds`/
+    `n_control_folds_estimable` fields are the UNCHANGED pre-amendment
+    (fold-level-only) computation, kept only for schema continuity -- they
+    no longer decide `status`; `per_checkpoint` is authoritative.
+    Cross-checkpoint aggregation reuses `_aggregate_battery_statuses`
+    (unanimous: any decided FAIL among checkpoints fails the battery; a
+    checkpoint that's `not_estimable`/never decided is dropped from the
+    tally rather than counted either way, the same rule this module
+    already uses one level up to combine battery-level verdicts into an
+    overall criterion status)."""
     if not records:
         return _criterion(STATUS_PENDING, "no Phase A battery input provided")
     per_battery = {}
@@ -625,6 +656,10 @@ def criterion_4_intervention_vs_random(records: list[dict], min_fraction: float 
         if _is_candidate_skipped(cand):
             per_battery[name] = dict(status=STATUS_EXCLUDED, reason=f"battery skipped: {cand.get('skipped')}")
             continue
+
+        # Legacy, fold-level-only figures -- UNCHANGED computation (reads
+        # only the fold-level field, exactly as before the amendment),
+        # kept for schema continuity. No longer used to decide `status`.
         main_flags, control_flags, control_any_not_estimable = [], [], False
         for estimator in battery.get("estimators", {}).values():
             if estimator.get("status") != "ok":
@@ -641,21 +676,81 @@ def criterion_4_intervention_vs_random(records: list[dict], min_fraction: float 
                       and random_mean is not None and random_std is not None):
                     control_flags.append(bool(tde > random_mean + 2 * random_std))
         main_fraction = float(np.mean(main_flags)) if main_flags else None
-        main_ok = main_fraction is not None and main_fraction >= min_fraction
-        if control_flags:
-            control_ok = all(control_flags)
-            status = STATUS_PASS if (main_ok and control_ok) else STATUS_FAIL
-        elif control_any_not_estimable:
-            status = STATUS_NOT_ESTIMABLE
+
+        # Per-checkpoint figures -- THE unanimous-rule verdict.
+        per_ckpt_acc: dict[str, dict] = {}
+        battery_sources: set[str] = set()
+        for estimator in battery.get("estimators", {}).values():
+            if estimator.get("status") != "ok":
+                continue
+            for fold in estimator.get("fold_results", []):
+                eff = fold.get("effect", {})
+                fold_level_prc = eff.get("projection_removal_control", {})
+                for ckpt_name, ckpt_entry in eff.get("per_checkpoint", {}).items():
+                    ckpt_prc = ckpt_entry.get("projection_removal_control")
+                    if ckpt_prc:
+                        prc, source = ckpt_prc, "per_checkpoint"
+                    else:
+                        prc, source = fold_level_prc, "fold_level_fallback"
+                    battery_sources.add(source)
+                    acc = per_ckpt_acc.setdefault(ckpt_name, dict(
+                        main_flags=[], control_flags=[], control_any_not_estimable=False, sources=set(),
+                    ))
+                    acc["sources"].add(source)
+                    if "exceeds_random" in prc:
+                        acc["main_flags"].append(bool(prc["exceeds_random"]))
+                    tde = prc.get("task_direction_effect")
+                    ckpt_random_mean, ckpt_random_std = prc.get("random_mean"), prc.get("random_std")
+                    if isinstance(tde, dict) and tde.get("status") == STATUS_NOT_ESTIMABLE:
+                        acc["control_any_not_estimable"] = True
+                    elif (tde is not None and not isinstance(tde, dict)
+                          and ckpt_random_mean is not None and ckpt_random_std is not None):
+                        acc["control_flags"].append(bool(tde > ckpt_random_mean + 2 * ckpt_random_std))
+
+        per_checkpoint_verdicts = {}
+        for ckpt_name, acc in sorted(per_ckpt_acc.items()):
+            ckpt_main_fraction = float(np.mean(acc["main_flags"])) if acc["main_flags"] else None
+            ckpt_main_ok = ckpt_main_fraction is not None and ckpt_main_fraction >= min_fraction
+            if acc["control_flags"]:
+                ckpt_status = STATUS_PASS if (ckpt_main_ok and all(acc["control_flags"])) else STATUS_FAIL
+            elif acc["control_any_not_estimable"]:
+                ckpt_status = STATUS_NOT_ESTIMABLE
+            else:
+                ckpt_status = STATUS_PENDING
+            ckpt_sources = sorted(acc["sources"])
+            per_checkpoint_verdicts[ckpt_name] = dict(
+                status=ckpt_status, main_exceeds_random_fraction=ckpt_main_fraction,
+                n_main_folds=len(acc["main_flags"]), n_control_folds_estimable=len(acc["control_flags"]),
+                control_source=ckpt_sources[0] if len(ckpt_sources) == 1 else ckpt_sources,
+            )
+
+        if per_checkpoint_verdicts:
+            status = _aggregate_battery_statuses(
+                {ckpt: v["status"] for ckpt, v in per_checkpoint_verdicts.items()}
+            )
+            verdict_summary = ", ".join(f"{ckpt} {v['status']}" for ckpt, v in sorted(per_checkpoint_verdicts.items()))
         else:
             status = STATUS_PENDING
+            verdict_summary = "no per-checkpoint projection_removal_control data available"
+
+        sorted_sources = sorted(battery_sources)
         per_battery[name] = dict(
             status=status, main_exceeds_random_fraction=main_fraction, n_main_folds=len(main_flags),
             n_control_folds_estimable=len(control_flags),
+            per_checkpoint=per_checkpoint_verdicts,
+            control_source=(sorted_sources[0] if len(sorted_sources) == 1
+                            else sorted_sources if sorted_sources else None),
+            verdict_summary=verdict_summary,
         )
     overall = _aggregate_battery_statuses({k: v["status"] for k, v in per_battery.items()})
-    return _criterion(overall, "per-battery main-effect-vs-random and positive-control results",
-                       dict(per_battery=per_battery))
+    return _criterion(
+        overall,
+        "per-checkpoint main-effect-vs-random and positive-control results, UNANIMOUS across "
+        "checkpoints (docs/gate_prereg.md C4 amendment, 2026-07-22) -- see per_battery[name]."
+        "per_checkpoint for each checkpoint's own verdict and per_battery[name].verdict_summary "
+        "for a legible pass/fail breakdown",
+        dict(per_battery=per_battery),
+    )
 
 
 # ---------------------------------------------------------------------------
