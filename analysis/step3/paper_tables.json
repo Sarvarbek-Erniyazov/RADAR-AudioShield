@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "generated_at": "2026-07-23T13:36:54.031Z",
+  "schema_version": 2,
+  "generated_at": "2026-07-23T14:32:05.341Z",
   "warnings": [],
   "encoding_table": [
     {
@@ -15,42 +15,6 @@
     }
   ],
   "reliance_table": [
-    {
-      "battery": "replaydf_language_by_channel",
-      "corpus": "replaydf",
-      "factor": "language",
-      "checkpoint": "e007_A_fresh",
-      "r_var": 3.923863671239358e-16,
-      "r_var_status": "ok",
-      "alignment": 5.965625465395439e-08,
-      "alignment_status": "ok",
-      "decision_flip_rate": 0.0,
-      "exceeds_random": false
-    },
-    {
-      "battery": "replaydf_language_by_channel",
-      "corpus": "replaydf",
-      "factor": "language",
-      "checkpoint": "e007_B_fresh",
-      "r_var": 3.3124050221515967e-09,
-      "r_var_status": "ok",
-      "alignment": 9.687533386988883e-05,
-      "alignment_status": "ok",
-      "decision_flip_rate": 0.0,
-      "exceeds_random": false
-    },
-    {
-      "battery": "replaydf_language_by_channel",
-      "corpus": "replaydf",
-      "factor": "language",
-      "checkpoint": "e007_C_xlsr_fresh",
-      "r_var": 2.1457672547834326e-10,
-      "r_var_status": "ok",
-      "alignment": 9.315600415373184e-05,
-      "alignment_status": "ok",
-      "decision_flip_rate": 0.0,
-      "exceeds_random": false
-    },
     {
       "battery": "replaydf_generator_by_channel",
       "corpus": "replaydf",
@@ -86,6 +50,402 @@
       "alignment_status": "ok",
       "decision_flip_rate": 0.0,
       "exceeds_random": false
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "corpus": "replaydf",
+      "factor": "language",
+      "checkpoint": "e007_A_fresh",
+      "r_var": 3.923863671239358e-16,
+      "r_var_status": "ok",
+      "alignment": 5.965625465395439e-08,
+      "alignment_status": "ok",
+      "decision_flip_rate": 0.0,
+      "exceeds_random": false
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "corpus": "replaydf",
+      "factor": "language",
+      "checkpoint": "e007_B_fresh",
+      "r_var": 3.3124050221515967e-09,
+      "r_var_status": "ok",
+      "alignment": 9.687533386988883e-05,
+      "alignment_status": "ok",
+      "decision_flip_rate": 0.0,
+      "exceeds_random": false
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "corpus": "replaydf",
+      "factor": "language",
+      "checkpoint": "e007_C_xlsr_fresh",
+      "r_var": 2.1457672547834326e-10,
+      "r_var_status": "ok",
+      "alignment": 9.315600415373184e-05,
+      "alignment_status": "ok",
+      "decision_flip_rate": 0.0,
+      "exceeds_random": false
+    }
+  ],
+  "three_tier_effect_table": [
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "lda",
+      "checkpoint": "e007_A_fresh",
+      "factor_true_effect": 3.9494769256725883e-07,
+      "random_mean": 0.03525849237488814,
+      "random_std": 0.04651867687380233,
+      "random_mean_plus_2std": 0.12829584612249278,
+      "task_direction_effect": 6.918097947555589,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "lda",
+      "checkpoint": "e007_B_fresh",
+      "factor_true_effect": 0.001022305759994116,
+      "random_mean": 0.03313115566762297,
+      "random_std": 0.02752134169014654,
+      "random_mean_plus_2std": 0.08817383904791605,
+      "task_direction_effect": 4.441773022411368,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "lda",
+      "checkpoint": "e007_C_xlsr_fresh",
+      "factor_true_effect": 0.0003015716148458175,
+      "random_mean": 0.03401000090051979,
+      "random_std": 0.025820047025017546,
+      "random_mean_plus_2std": 0.08565009495055488,
+      "task_direction_effect": 2.5398862295952673,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "probe",
+      "checkpoint": "e007_A_fresh",
+      "factor_true_effect": 7.382742653795506e-08,
+      "random_mean": 0.03525849237488814,
+      "random_std": 0.04651867687380233,
+      "random_mean_plus_2std": 0.12829584612249278,
+      "task_direction_effect": 6.918097947555589,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "probe",
+      "checkpoint": "e007_B_fresh",
+      "factor_true_effect": 0.00019805833594200268,
+      "random_mean": 0.023880301701204,
+      "random_std": 0.02296351162103698,
+      "random_mean_plus_2std": 0.06980732494327796,
+      "task_direction_effect": 4.441773022411368,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "probe",
+      "checkpoint": "e007_C_xlsr_fresh",
+      "factor_true_effect": 3.069612579568758e-05,
+      "random_mean": 0.01750084894405123,
+      "random_std": 0.016811621072690713,
+      "random_mean_plus_2std": 0.05112409108943265,
+      "task_direction_effect": 2.5398862295952673,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "lda",
+      "checkpoint": "e007_A_fresh",
+      "factor_true_effect": 8.214265790815729e-08,
+      "random_mean": 0.03479814605551031,
+      "random_std": 0.05416212751717601,
+      "random_mean_plus_2std": 0.14312240108986232,
+      "task_direction_effect": 7.806256152514116,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "lda",
+      "checkpoint": "e007_B_fresh",
+      "factor_true_effect": 0.00028322424480053813,
+      "random_mean": 0.02596331695534056,
+      "random_std": 0.02586403752796182,
+      "random_mean_plus_2std": 0.0776913920112642,
+      "task_direction_effect": 5.2334134826381025,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "lda",
+      "checkpoint": "e007_C_xlsr_fresh",
+      "factor_true_effect": 0.0001589194794247594,
+      "random_mean": 0.013470561917315901,
+      "random_std": 0.01493393492540061,
+      "random_mean_plus_2std": 0.04333843176811712,
+      "task_direction_effect": 2.6529676888548046,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "probe",
+      "checkpoint": "e007_A_fresh",
+      "factor_true_effect": 1.0122609840675837e-07,
+      "random_mean": 0.03479814605551031,
+      "random_std": 0.05416212751717601,
+      "random_mean_plus_2std": 0.14312240108986232,
+      "task_direction_effect": 7.806256152514116,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "probe",
+      "checkpoint": "e007_B_fresh",
+      "factor_true_effect": 0.0005005878064433839,
+      "random_mean": 0.0518557536148734,
+      "random_std": 0.039327658758932856,
+      "random_mean_plus_2std": 0.1305110711327391,
+      "task_direction_effect": 5.2334134826381025,
+      "exceeds_random": false,
+      "n_folds": 5
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "probe",
+      "checkpoint": "e007_C_xlsr_fresh",
+      "factor_true_effect": 0.00015219841418818132,
+      "random_mean": 0.03892089717762848,
+      "random_std": 0.03271074118782306,
+      "random_mean_plus_2std": 0.10434237955327459,
+      "task_direction_effect": 2.6529676888548046,
+      "exceeds_random": false,
+      "n_folds": 5
+    }
+  ],
+  "two_space_decodability_table": [
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "lda",
+      "fold_id": 0,
+      "cachespace_fss": 0.889,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.5059359931563998,
+      "modelspace_leace_factor_decodability_before": 0.36500579777365494
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "lda",
+      "fold_id": 1,
+      "cachespace_fss": 0.889,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.5166875685331761,
+      "modelspace_leace_factor_decodability_before": 0.3916507444032495
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "lda",
+      "fold_id": 2,
+      "cachespace_fss": 0.889,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.5638068156209763,
+      "modelspace_leace_factor_decodability_before": 0.3118107325064872
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "lda",
+      "fold_id": 3,
+      "cachespace_fss": 0.889,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.47273220599979754,
+      "modelspace_leace_factor_decodability_before": 0.40064282569730514
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "lda",
+      "fold_id": 4,
+      "cachespace_fss": 0.889,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.5496431695753242,
+      "modelspace_leace_factor_decodability_before": 0.3640758484965802
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "probe",
+      "fold_id": 0,
+      "cachespace_fss": 0.889,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.3798940565221466,
+      "modelspace_leace_factor_decodability_before": 0.36500579777365494
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "probe",
+      "fold_id": 1,
+      "cachespace_fss": 0.889,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.3648289629152006,
+      "modelspace_leace_factor_decodability_before": 0.3916507444032495
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "probe",
+      "fold_id": 2,
+      "cachespace_fss": 0.889,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.3401150065452822,
+      "modelspace_leace_factor_decodability_before": 0.3118107325064872
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "probe",
+      "fold_id": 3,
+      "cachespace_fss": 0.889,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.36548023280712627,
+      "modelspace_leace_factor_decodability_before": 0.40064282569730514
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "factor": "generator_id",
+      "estimator": "probe",
+      "fold_id": 4,
+      "cachespace_fss": 0.889,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.4090816217355201,
+      "modelspace_leace_factor_decodability_before": 0.3640758484965802
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "lda",
+      "fold_id": 0,
+      "cachespace_fss": 0.949,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.8503489653419829,
+      "modelspace_leace_factor_decodability_before": 0.3226490640275307
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "lda",
+      "fold_id": 1,
+      "cachespace_fss": 0.949,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.8401305224395583,
+      "modelspace_leace_factor_decodability_before": 0.2696901977752918
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "lda",
+      "fold_id": 2,
+      "cachespace_fss": 0.949,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.8017032244447095,
+      "modelspace_leace_factor_decodability_before": 0.2984440680092854
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "lda",
+      "fold_id": 3,
+      "cachespace_fss": 0.949,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.8383792560330998,
+      "modelspace_leace_factor_decodability_before": 0.33683790218877946
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "lda",
+      "fold_id": 4,
+      "cachespace_fss": 0.949,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.8187601887826501,
+      "modelspace_leace_factor_decodability_before": 0.3204004512382324
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "probe",
+      "fold_id": 0,
+      "cachespace_fss": 0.949,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.6697645698618049,
+      "modelspace_leace_factor_decodability_before": 0.3226490640275307
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "probe",
+      "fold_id": 1,
+      "cachespace_fss": 0.949,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.5397393053729002,
+      "modelspace_leace_factor_decodability_before": 0.2696901977752918
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "probe",
+      "fold_id": 2,
+      "cachespace_fss": 0.949,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.5729220362497844,
+      "modelspace_leace_factor_decodability_before": 0.2984440680092854
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "probe",
+      "fold_id": 3,
+      "cachespace_fss": 0.949,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.6658804219671955,
+      "modelspace_leace_factor_decodability_before": 0.33683790218877946
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "factor": "language",
+      "estimator": "probe",
+      "fold_id": 4,
+      "cachespace_fss": 0.949,
+      "cachespace_fss_source": "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)",
+      "modelspace_factor_separation_score": 0.5904866885749844,
+      "modelspace_leace_factor_decodability_before": 0.3204004512382324
     }
   ],
   "gate_table": [

@@ -28,9 +28,8 @@ Outputs (both written every run, atomically):
 Usage:
     python scripts/extract_paper_tables.py \\
         --cachespace-phase-a tests/fixtures/step3/reliance_layer9_boot_diffssd_openvoicev2_accent_by_speaker.json \\
-        --modelspace-phase-a analysis/step3/reliance_modelspace_prereg_replaydf_language_by_channel.json \\
-                              analysis/step3/reliance_modelspace_prereg_replaydf_generator_by_channel.json \\
-        --gate-verdict analysis/step4/gate_verdict_prereg_v2.json \\
+        --modelspace-phase-a analysis/step3/reliance_modelspace_prereg.json \\
+        --gate-verdict analysis/step4/gate_verdict_prereg_v3.json \\
         --out-dir analysis/step3
 """
 from __future__ import annotations
@@ -56,10 +55,15 @@ DEFAULT_CACHESPACE_PHASE_A = [
     Path("tests/fixtures/step3/reliance_layer9_boot_diffssd_openvoicev2_accent_by_speaker.json"),
 ]
 DEFAULT_MODELSPACE_PHASE_A = [
-    Path("analysis/step3/reliance_modelspace_prereg_replaydf_language_by_channel.json"),
-    Path("analysis/step3/reliance_modelspace_prereg_replaydf_generator_by_channel.json"),
+    # The combined manifest carries BOTH model-space batteries
+    # (replaydf_language_by_channel, replaydf_generator_by_channel); its
+    # per-battery `battery` dicts are byte-identical to the two standalone
+    # split files the gate itself consumes (verified by direct comparison),
+    # so reading it here changes no value in any table below -- only the
+    # single-source provenance.
+    Path("analysis/step3/reliance_modelspace_prereg.json"),
 ]
-DEFAULT_GATE_VERDICT = Path("analysis/step4/gate_verdict_prereg_v2.json")
+DEFAULT_GATE_VERDICT = Path("analysis/step4/gate_verdict_prereg_v3.json")
 DEFAULT_OUT_DIR = Path("analysis/step3")
 
 
@@ -150,6 +154,138 @@ def extract_reliance_table(records: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Table 4 -- model-space three-tier intervention effect (from the BEHAVIORAL
+# control functional, prediction_change_control), per checkpoint x battery x
+# estimator. This is the functional C4 evaluates since docs/gate_prereg.md's
+# 2026-07-23 #2 amendment: the factor projection effect (true_effect) vs its
+# equal-norm random control (mean/std) vs the task-direction positive control
+# (task_direction_effect). It makes visible the finding behind C4's
+# fail-with-live-control verdict: the factor effect is ~0 while the positive
+# control is huge, so the pipeline is demonstrably alive and the factor
+# reliance is genuinely absent.
+# ---------------------------------------------------------------------------
+
+
+def extract_three_tier_effect_table(records: list[dict]) -> list[dict]:
+    """One row per (battery, estimator, checkpoint), folds aggregated by mean,
+    read from per_checkpoint[ckpt].prediction_change_control -- the same
+    behavioral control functional run_gate.criterion_4 reads. A checkpoint
+    whose prediction_change_control is the not_estimable sentinel / empty (the
+    w-disabled cache-space regime) contributes no numeric row and is skipped,
+    exactly as C4 would fall back rather than read it."""
+    rows = []
+    for rec in records:
+        battery = rec["battery"]
+        for est_name, estimator in sorted(battery.get("estimators", {}).items()):
+            if estimator.get("status") != "ok":
+                continue
+            acc: dict[str, dict] = {}
+            for fold in estimator.get("fold_results", []):
+                for ckpt_name, ckpt_entry in fold.get("effect", {}).get("per_checkpoint", {}).items():
+                    pcc = ckpt_entry.get("prediction_change_control")
+                    if not (isinstance(pcc, dict) and isinstance(pcc.get("true_effect"), (int, float))):
+                        continue  # not_estimable sentinel / empty -- skip, don't fabricate
+                    bucket = acc.setdefault(ckpt_name, dict(
+                        true_effect=[], random_mean=[], random_std=[], task_direction_effect=[], exceeds_flags=[]))
+                    bucket["true_effect"].append(float(pcc["true_effect"]))
+                    if isinstance(pcc.get("random_mean"), (int, float)):
+                        bucket["random_mean"].append(float(pcc["random_mean"]))
+                    if isinstance(pcc.get("random_std"), (int, float)):
+                        bucket["random_std"].append(float(pcc["random_std"]))
+                    tde = pcc.get("task_direction_effect")
+                    if isinstance(tde, (int, float)) and not isinstance(tde, bool):
+                        bucket["task_direction_effect"].append(float(tde))
+                    if isinstance(pcc.get("exceeds_random"), bool):
+                        bucket["exceeds_flags"].append(pcc["exceeds_random"])
+            for ckpt_name in sorted(acc):
+                bucket = acc[ckpt_name]
+                rm = float(np.mean(bucket["random_mean"])) if bucket["random_mean"] else None
+                rs = float(np.mean(bucket["random_std"])) if bucket["random_std"] else None
+                rows.append(dict(
+                    battery=battery["name"], factor=battery.get("factor"), estimator=est_name,
+                    checkpoint=ckpt_name,
+                    factor_true_effect=float(np.mean(bucket["true_effect"])) if bucket["true_effect"] else None,
+                    random_mean=rm, random_std=rs,
+                    random_mean_plus_2std=(rm + 2 * rs) if (rm is not None and rs is not None) else None,
+                    task_direction_effect=(float(np.mean(bucket["task_direction_effect"]))
+                                           if bucket["task_direction_effect"] else None),
+                    exceeds_random=(all(bucket["exceeds_flags"]) if bucket["exceeds_flags"] else None),
+                    n_folds=len(bucket["true_effect"]),
+                ))
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Table 5 -- two-space factor decodability: cache-space FSS vs model-space
+# factor_separation_score and LEACE factor_decodability_before, per fold. Puts
+# the ENCODING result (factor strongly decodable from the frozen cache-space
+# representation) next to the model-space decodability of the same factor, the
+# space in which the causal-reliance null is measured.
+# ---------------------------------------------------------------------------
+
+# Cache-space FSS for the two ReplayDF batteries exists in this repository ONLY
+# as prose in CURRENT_STATE.md's "Cache-space ENCODING" table -- the underlying
+# per-battery bootstrap JSON files were produced on the collaborator's machine
+# and are not committed here (the sole readable cache-space file is the DiffSSD
+# openvoicev2-accent battery, FSS 0.992, used in Table 1). These values are
+# therefore carried as explicitly-sourced constants, never silently presented
+# as file-derived; each row records `cachespace_fss_source` so the provenance
+# is unambiguous. Keyed by (corpus, factor) so a real committed file, if one
+# ever appears, can override the prose value in _cachespace_fss_lookup below.
+CACHESPACE_FSS_PROSE: dict[tuple[str, str], float] = {
+    ("replaydf", "language"): 0.949,
+    ("replaydf", "generator_id"): 0.889,
+}
+CACHESPACE_FSS_PROSE_SOURCE = "CURRENT_STATE.md prose (collaborator-machine bootstrap, not committed here)"
+
+
+def _cachespace_fss_lookup(cachespace_records: list[dict]) -> dict[tuple[str, str], dict]:
+    """(corpus, factor) -> {fss, source}. Prefers a real, readable cache-space
+    file's `ok` factor_separation_score bootstrap; falls back to the
+    explicitly-sourced CURRENT_STATE.md prose constant for batteries whose
+    cache-space JSON is not committed on this machine."""
+    lookup: dict[tuple[str, str], dict] = {}
+    for rec in cachespace_records:
+        battery = rec["battery"]
+        boot = battery.get("headline_bootstrap", {})
+        if boot.get("metric") == "factor_separation_score" and boot.get("status") == "ok":
+            lookup[(battery.get("corpus"), battery.get("factor"))] = dict(
+                fss=boot["mean"], source=f"file:{battery['name']} headline_bootstrap")
+    for key, fss in CACHESPACE_FSS_PROSE.items():
+        lookup.setdefault(key, dict(fss=fss, source=CACHESPACE_FSS_PROSE_SOURCE))
+    return lookup
+
+
+def extract_two_space_decodability_table(modelspace_records: list[dict],
+                                         cachespace_records: list[dict]) -> list[dict]:
+    """One row per (battery, estimator, fold): cache-space FSS (with explicit
+    provenance) alongside that fold's model-space factor_separation_score and
+    LEACE factor_decodability_before -- both checkpoint-independent, read at the
+    fold level exactly where run_reliance_battery.py writes them."""
+    fss_lookup = _cachespace_fss_lookup(cachespace_records)
+    rows = []
+    for rec in modelspace_records:
+        battery = rec["battery"]
+        cs = fss_lookup.get((battery.get("corpus"), battery.get("factor")), {})
+        for est_name, estimator in sorted(battery.get("estimators", {}).items()):
+            if estimator.get("status") != "ok":
+                continue
+            for fold in estimator.get("fold_results", []):
+                eff = fold.get("effect", {})
+                fss = eff.get("factor_separation_score")
+                leace_before = eff.get("leace", {}).get("factor_decodability_before")
+                rows.append(dict(
+                    battery=battery["name"], factor=battery.get("factor"), estimator=est_name,
+                    fold_id=fold.get("fold_id"),
+                    cachespace_fss=cs.get("fss"), cachespace_fss_source=cs.get("source"),
+                    modelspace_factor_separation_score=(float(fss) if isinstance(fss, (int, float)) else None),
+                    modelspace_leace_factor_decodability_before=(
+                        float(leace_before) if isinstance(leace_before, (int, float)) else None),
+                ))
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Table 3 -- gate verdict summary
 # ---------------------------------------------------------------------------
 
@@ -178,7 +314,8 @@ def _fmt(v, nd=4):
     return str(v)
 
 
-def render_markdown(encoding_rows, reliance_rows, gate_rows, overall_classification) -> str:
+def render_markdown(encoding_rows, reliance_rows, three_tier_rows, two_space_rows,
+                    gate_rows, overall_classification) -> str:
     lines = [f"# Paper tables -- generated {_timestamp()}", ""]
 
     lines += ["## Table 1 -- Cache-space factor encoding (FSS)", ""]
@@ -202,6 +339,48 @@ def render_markdown(encoding_rows, reliance_rows, gate_rows, overall_classificat
             lines.append(f"| {r['battery']} | {r['checkpoint']} | {_fmt(r['r_var'], 3)} | "
                           f"{_fmt(r['alignment'], 3)} | {_fmt(r['decision_flip_rate'], 3)} | "
                           f"{_fmt(r['exceeds_random'])} |")
+    else:
+        lines.append("*(no model-space battery input found)*")
+    lines.append("")
+
+    lines += ["## Table 4 -- Model-space three-tier intervention effect "
+              "(behavioral control: prediction_change_control)", ""]
+    if three_tier_rows:
+        lines += ["| Battery | Estimator | Checkpoint | factor true_effect | random mean | random std | "
+                   "random mean+2std | task_direction_effect | main exceeds_random | n_folds |",
+                   "|---|---|---|---|---|---|---|---|---|---|"]
+        for r in three_tier_rows:
+            lines.append(
+                f"| {r['battery']} | {r['estimator']} | {r['checkpoint']} | {_fmt(r['factor_true_effect'], 3)} | "
+                f"{_fmt(r['random_mean'], 3)} | {_fmt(r['random_std'], 3)} | {_fmt(r['random_mean_plus_2std'], 3)} | "
+                f"{_fmt(r['task_direction_effect'], 4)} | {_fmt(r['exceeds_random'])} | {r['n_folds']} |")
+        lines += ["", "The factor `true_effect` sits far below `random mean+2std` (so `main exceeds_random` "
+                       "is False everywhere) while `task_direction_effect` towers over the same bar -- the "
+                       "positive control is alive, the factor reliance is genuinely absent. This is the "
+                       "evidence behind C4's fail-WITH-live-control verdict (docs/gate_prereg.md 2026-07-23 #2)."]
+    else:
+        lines.append("*(no model-space prediction_change_control data found)*")
+    lines.append("")
+
+    lines += ["## Table 5 -- Two-space factor decodability "
+              "(cache-space FSS vs model-space, per fold)", ""]
+    if two_space_rows:
+        lines += ["| Battery | Estimator | Fold | cache-space FSS | model-space FSS | "
+                   "model-space LEACE decodability_before |",
+                   "|---|---|---|---|---|---|"]
+        for r in two_space_rows:
+            lines.append(
+                f"| {r['battery']} | {r['estimator']} | {r['fold_id']} | {_fmt(r['cachespace_fss'], 4)} | "
+                f"{_fmt(r['modelspace_factor_separation_score'], 4)} | "
+                f"{_fmt(r['modelspace_leace_factor_decodability_before'], 4)} |")
+        prose_sources = sorted({r["cachespace_fss_source"] for r in two_space_rows
+                                if r.get("cachespace_fss_source") and "prose" in r["cachespace_fss_source"]})
+        if prose_sources:
+            lines += ["", "**Cache-space FSS provenance:** the cache-space FSS column for the ReplayDF batteries "
+                           "is carried from " + "; ".join(prose_sources) + " -- the per-battery cache-space "
+                           "bootstrap JSON is not committed on this machine (only the DiffSSD accent battery in "
+                           "Table 1 is). Each row's provenance is recorded in `cachespace_fss_source` in the "
+                           "JSON output; these values are never presented as file-derived."]
     else:
         lines.append("*(no model-space battery input found)*")
     lines.append("")
@@ -267,15 +446,19 @@ def main(argv: list[str] | None = None) -> None:
 
     encoding_rows = extract_encoding_table(cachespace_records)
     reliance_rows = extract_reliance_table(modelspace_records)
+    three_tier_rows = extract_three_tier_effect_table(modelspace_records)
+    two_space_rows = extract_two_space_decodability_table(modelspace_records, cachespace_records)
     gate_rows = extract_gate_table(verdict)
     overall_classification = verdict.get("overall_classification") if verdict else None
 
     report = dict(
-        schema_version=1, generated_at=_timestamp(), warnings=warnings,
-        encoding_table=encoding_rows, reliance_table=reliance_rows, gate_table=gate_rows,
-        overall_classification=overall_classification,
+        schema_version=2, generated_at=_timestamp(), warnings=warnings,
+        encoding_table=encoding_rows, reliance_table=reliance_rows,
+        three_tier_effect_table=three_tier_rows, two_space_decodability_table=two_space_rows,
+        gate_table=gate_rows, overall_classification=overall_classification,
     )
-    markdown = render_markdown(encoding_rows, reliance_rows, gate_rows, overall_classification)
+    markdown = render_markdown(encoding_rows, reliance_rows, three_tier_rows, two_space_rows,
+                               gate_rows, overall_classification)
 
     _atomic_write(args.out_dir / "paper_tables.json", json.dumps(report, indent=2))
     _atomic_write(args.out_dir / "paper_tables.md", markdown)
