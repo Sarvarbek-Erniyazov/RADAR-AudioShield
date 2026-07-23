@@ -58,6 +58,46 @@ Each entry: the roadmap's verbatim wording, the proposed operationalization,
 the data source the gate consumer (`scripts/run_gate.py`) will read it from,
 and an explicit threshold marker.
 
+#### Amendment (2026-07-23) — Phase B model-space embedding-cache verification path
+
+**Reason this amendment exists:** C2, C4, and C7 all depend on Phase B
+model-space embeddings (`scripts/extract_model_embeddings.py`'s output,
+consumed by `scripts/run_reliance_modelspace.py`). The gate consumer
+structurally verifies that cache is actually present before trusting any
+criterion built on it (`scripts/run_gate.py`'s `check_phase_b_cache`) — but
+the two committed gate runs (`analysis/step4/gate_verdict.json`,
+`analysis/step4/gate_verdict_prereg.json`) both looked for that cache at
+`<phase-b-out-root>/<checkpoint-key>/<corpus-key>` (e.g.
+`_embcache_modelspace/e007_A_fresh/replaydf`), while the extractor's own
+canonical flat-file convention (`step3_modelspace_hardening_addendum.md`
+Finding 1) writes to
+`<phase-b-out-root>/runs_<checkpoint-key>_best/<CORPUS_DIR[corpus-key]>`
+(e.g. `_embcache_modelspace/runs_e007_A_fresh_best/04_ReplayDF`,
+`CORPUS_DIR` being `scripts/run_reliance_battery.py`'s existing corpus →
+dataset-directory table). Both committed verdicts therefore reported
+`phase_b_cache_status: pending_input` for every checkpoint regardless of
+whether the collaborator machine's cache actually existed — the check was
+**vacuous**, not merely conservative: it could never have found a real
+cache at any path, because it was never looking in the place the
+extractor actually writes to.
+
+**Rule:** the gate must translate each Phase A battery's own checkpoint/
+corpus identifiers into the real on-disk names before checking for the
+cache — checkpoint directory `f"runs_{checkpoint_key}_best"`, corpus
+directory `CORPUS_DIR[corpus_key]` — never the raw Phase A identifiers
+verbatim. A corpus absent from `CORPUS_DIR` must report a decided, legible
+`fail` explaining the missing table entry, never a silent guess at a
+directory name.
+
+**This is a plumbing correctness fix, not a threshold decision** — it
+changes what path is checked, not what counts as pass/fail once the cache
+is found, so it does not reopen any `THRESHOLD TBD` item above or below.
+Recorded as a dated amendment, not a silent edit, because it changes what
+the gate consumer structurally verifies, and because this document's own
+rule (§0) is that nothing here is tuned after a result is known — this fix
+was written and committed before re-running the gate, not after seeing
+whether it changed a verdict.
+
 ### C1 — Replication across ≥2 backbones (XLS-R-300M + WavLM-Large)
 
 > Verbatim: "replication across ≥2 backbones."
