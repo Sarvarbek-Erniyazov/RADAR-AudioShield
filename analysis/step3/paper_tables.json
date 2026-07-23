@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-23T13:36:54.031Z",
+  "warnings": [],
+  "encoding_table": [
+    {
+      "battery": "diffssd_openvoicev2_accent_by_speaker",
+      "corpus": "diffssd",
+      "factor": "language",
+      "fss_mean": 0.9921816946785448,
+      "fss_lo": 0.9907795863939457,
+      "fss_hi": 0.9938667012519375,
+      "n_boot": 1000,
+      "n_groups": 10
+    }
+  ],
+  "reliance_table": [
+    {
+      "battery": "replaydf_language_by_channel",
+      "corpus": "replaydf",
+      "factor": "language",
+      "checkpoint": "e007_A_fresh",
+      "r_var": 3.923863671239358e-16,
+      "r_var_status": "ok",
+      "alignment": 5.965625465395439e-08,
+      "alignment_status": "ok",
+      "decision_flip_rate": 0.0,
+      "exceeds_random": false
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "corpus": "replaydf",
+      "factor": "language",
+      "checkpoint": "e007_B_fresh",
+      "r_var": 3.3124050221515967e-09,
+      "r_var_status": "ok",
+      "alignment": 9.687533386988883e-05,
+      "alignment_status": "ok",
+      "decision_flip_rate": 0.0,
+      "exceeds_random": false
+    },
+    {
+      "battery": "replaydf_language_by_channel",
+      "corpus": "replaydf",
+      "factor": "language",
+      "checkpoint": "e007_C_xlsr_fresh",
+      "r_var": 2.1457672547834326e-10,
+      "r_var_status": "ok",
+      "alignment": 9.315600415373184e-05,
+      "alignment_status": "ok",
+      "decision_flip_rate": 0.0,
+      "exceeds_random": false
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "corpus": "replaydf",
+      "factor": "generator_id",
+      "checkpoint": "e007_A_fresh",
+      "r_var": 1.5831162597441507e-16,
+      "r_var_status": "ok",
+      "alignment": 9.491856610687742e-08,
+      "alignment_status": "ok",
+      "decision_flip_rate": 0.0,
+      "exceeds_random": false
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "corpus": "replaydf",
+      "factor": "generator_id",
+      "checkpoint": "e007_B_fresh",
+      "r_var": 1.9574272100762583e-10,
+      "r_var_status": "ok",
+      "alignment": 0.0003851616168430141,
+      "alignment_status": "ok",
+      "decision_flip_rate": 0.0,
+      "exceeds_random": false
+    },
+    {
+      "battery": "replaydf_generator_by_channel",
+      "corpus": "replaydf",
+      "factor": "generator_id",
+      "checkpoint": "e007_C_xlsr_fresh",
+      "r_var": 3.699965865172299e-11,
+      "r_var_status": "ok",
+      "alignment": 5.807378021939326e-05,
+      "alignment_status": "ok",
+      "decision_flip_rate": 0.0,
+      "exceeds_random": false
+    }
+  ],
+  "gate_table": [
+    {
+      "criterion": "C1",
+      "status": "pending_input",
+      "evidence": "no second-backbone (WavLM-Large) battery input provided -- pass --phase-a-secondary-backbone once the collaborator machine's WavLM-Large embedding pass produces it"
+    },
+    {
+      "criterion": "C2",
+      "status": "fail",
+      "evidence": "per-battery association results: {'replaydf_language_by_channel': 'pass', 'replaydf_generator_by_channel': 'fail'}"
+    },
+    {
+      "criterion": "C3",
+      "status": "pass",
+      "evidence": "2/2 decided batteries have a usable grouped bootstrap (status=ok, n_boot>=1000, n_groups>=8, non-degenerate grouping); 0 excluded/operational-gap"
+    },
+    {
+      "criterion": "C4",
+      "status": "fail",
+      "evidence": "per-checkpoint main-effect-vs-random and positive-control results, UNANIMOUS across checkpoints (docs/gate_prereg.md C4 amendment, 2026-07-22) -- see per_battery[name].per_checkpoint for each checkpoint's own verdict and per_battery[name].verdict_summary for a legible pass/fail breakdown"
+    },
+    {
+      "criterion": "C5",
+      "status": "pass",
+      "evidence": "2/2 decided batteries have a stable rank window (>=2 consecutive ranks, including headline rank 1); 0 excluded/operational-gap"
+    },
+    {
+      "criterion": "C6",
+      "status": "pass",
+      "evidence": "2/2 decided batteries show estimators_agree_sign=True (LDA-subspace vs cross-fitted linear-probe); 0 excluded/operational-gap"
+    },
+    {
+      "criterion": "C7",
+      "status": "fail",
+      "evidence": "clean-EER-residualized sign-survival per battery (n=3-ish checkpoints -- descriptive, not a powered significance test; see docs/gate_prereg.md \u00a74 ambiguity 3)"
+    },
+    {
+      "criterion": "C8",
+      "status": "pending_input",
+      "evidence": "no head-replicate result file provided -- run scripts/head_replicates.py against the real cached embeddings (collaborator machine) and pass --head-replicates"
+    }
+  ],
+  "overall_classification": null
+}
