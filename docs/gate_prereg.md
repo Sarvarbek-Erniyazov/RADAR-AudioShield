@@ -246,6 +246,57 @@ checkpoint" from "true for the phenomenon" is the conservative choice — it
 cannot manufacture a false pass, only correctly withhold one until every
 available checkpoint agrees.
 
+#### Amendment (2026-07-23, #2) — C4 evaluates the behavioral control functional
+
+**Reason this amendment exists:** the wording above names
+`projection_removal_control` as C4's data source (drafted §0-blind, when it
+was the only causal control the battery computed). Run 2's model-space
+results — now committed (`analysis/step3/reliance_modelspace_prereg.json`
+and the two per-battery split files behind the gate) — make it visible that
+`projection_removal_control` is the **factor-decodability-drop** functional:
+its effect is how much projecting out the task direction `w` reduces a
+probe's ability to decode the *factor*, and by construction that barely
+moves (removing `w` does not remove factor information). Its own positive
+control, `task_direction_effect`, is therefore **inert by construction** —
+in the committed data it sits at `-1.1e-4` against a `random_mean+2σ ≈
+2.9e-3` bar, so C4(b)'s "the control pipeline detects a known, real effect
+(task removal) and is **not silently inert**" requirement can never be
+satisfied on this functional *even in principle*. A criterion cannot be
+allowed to FAIL because its own positive control is dead by design; that is
+a fail-by-dead-control, not a scientific result.
+
+**Rule.** C4's main effect (a) **and** its positive control (b) are
+evaluated, per checkpoint, on the **BEHAVIORAL** functional
+`prediction_change_control` (effect = `mean_abs_logit_change` from
+`removal_control_report` — the change in the head's own logits when `w` is
+projected out, with the sibling `prediction_change.decision_flip_rate`
+reported alongside). This is a **live** control: in the committed data its
+`task_direction_effect` runs **2.47–8.04** against a `random_mean+2σ ≈
+0.08–0.16` bar across checkpoints × batteries, so the positive control
+clears its bar unanimously and C4(b) is genuinely satisfied.
+`projection_removal_control` is retained **only** as the cache-space
+fold-level fallback (the pre–Phase B regime, where no per-checkpoint
+behavioral control exists); the results file records which functional
+decided each checkpoint in `control_source`
+(`per_checkpoint:prediction_change_control` vs
+`fold_level_fallback:projection_removal_control`), so the regime is never
+ambiguous. The 2σ bar, the ≥50%-of-folds main-effect majority, the
+all-estimable positive-control bar, and the 2026-07-22 unanimity-across-
+checkpoints rule are all unchanged; only *which functional they read* changes.
+
+**This amendment (i) was committed AFTER run-2 results were seen** — it is a
+post-hoc correction of a data-source error surfaced by the real numbers, not
+a pre-registration written blind. **And (ii) it cannot flip C4's verdict to
+pass.** On the behavioral functional the *main* effect still fails to exceed
+its random control — the factor `true_effect` is `1.4e-7–1.6e-3` against a
+`random_mean+2σ ≈ 0.08–0.16` bar (from the committed JSON), so `exceeds_random`
+is `False` for every checkpoint × battery × estimator and (a) fails
+regardless. C4 remains **FAIL**. What changes is *what the fail means*: no
+longer a fail-by-dead-control (positive control inert by construction), but a
+**fail-with-live-control** (positive control demonstrably alive, main effect
+genuinely absent) — the scientifically meaningful reading. Recorded as a
+dated amendment, not a silent edit, because it changes C4's data source.
+
 ### C5 — Rank stability
 
 > Verbatim: "rank stability."
