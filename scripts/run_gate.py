@@ -664,23 +664,36 @@ def criterion_4_intervention_vs_random(records: list[dict], min_fraction: float 
     main effect uses.
 
     AMENDED (docs/gate_prereg.md's 2026-07-22 C4 amendment): the verdict is
-    UNANIMOUS across checkpoints -- every checkpoint's own
-    per_checkpoint[ckpt].projection_removal_control (populated by
-    run_reliance_modelspace.py's merge_checkpoint_estimator_results for
-    every checkpoint, the same field _per_checkpoint_reliance already
-    reads for C2/C7) must independently clear the same main-effect-majority/
+    UNANIMOUS across checkpoints -- every checkpoint's own per-checkpoint
+    control must independently clear the same main-effect-majority/
     positive-control-unanimity bars documented above, scoped to that
     checkpoint's own folds; one checkpoint failing fails the whole battery,
-    regardless of how strongly the others pass. A checkpoint whose own
-    per_checkpoint entry has no projection_removal_control key at all (the
-    cache-space regime, where the control was checkpoint-independent by
-    construction) falls back to the fold-level
-    fold['effect']['projection_removal_control'] instead -- every
-    checkpoint then shares that one value, which reproduces the pre-
-    amendment fold-level-only computation exactly. Which path was used is
-    recorded per checkpoint (and, if uniform across the battery, once at
-    the battery level too) as `control_source`, so the regime is never
-    ambiguous in a results file. `per_checkpoint[ckpt]` verdicts are
+    regardless of how strongly the others pass.
+
+    FURTHER AMENDED (docs/gate_prereg.md's 2026-07-23 #2 C4 amendment): the
+    per-checkpoint control is the BEHAVIORAL functional
+    per_checkpoint[ckpt].prediction_change_control (effect =
+    mean_abs_logit_change from removal_control_report), NOT
+    projection_removal_control. Both carry the same
+    true_effect/random_effects/random_mean/random_std/exceeds_random shape
+    plus a sibling task_direction_effect positive control, but only
+    prediction_change_control's positive control is LIVE: removing the task
+    direction w genuinely changes the head's logits. projection_removal_control
+    is the factor-decodability-drop functional, whose task_direction_effect is
+    ~0 BY DESIGN (removing w does not remove factor information), so its
+    positive control is inert by construction and can never satisfy C4(b)'s
+    "not silently inert" bar -- it is kept ONLY as the cache-space fold-level
+    fallback (fold['effect']['projection_removal_control']), used when a
+    checkpoint has no usable behavioral control (the not_estimable sentinel /
+    empty dict of the pre-Phase B, w-disabled regime); every checkpoint then
+    shares that one fold-level value, reproducing the pre-amendment fold-level-
+    only computation exactly. Which functional decided each checkpoint is
+    recorded (per checkpoint, and if uniform across the battery, once at the
+    battery level too) as `control_source` -- "per_checkpoint:prediction_change_control"
+    vs "fold_level_fallback:projection_removal_control" -- so the regime is
+    never ambiguous in a results file. `per_checkpoint[ckpt]` verdicts are
+    reported individually alongside the aggregate so a failure reads as
+    e.g. "e007_A pass, e007_B pass, e007_C fail", never a bare boolean. `per_checkpoint[ckpt]` verdicts are
     reported individually alongside the aggregate so a failure reads as
     e.g. "e007_A pass, e007_B pass, e007_C fail", never a bare boolean.
     The battery-level `main_exceeds_random_fraction`/`n_main_folds`/
@@ -724,7 +737,19 @@ def criterion_4_intervention_vs_random(records: list[dict], min_fraction: float 
                     control_flags.append(bool(tde > random_mean + 2 * random_std))
         main_fraction = float(np.mean(main_flags)) if main_flags else None
 
-        # Per-checkpoint figures -- THE unanimous-rule verdict.
+        # Per-checkpoint figures -- THE unanimous-rule verdict, evaluated on
+        # the BEHAVIORAL functional (docs/gate_prereg.md C4 amendment,
+        # 2026-07-23 #2). Per checkpoint we PREFER prediction_change_control
+        # (effect = mean_abs_logit_change): its positive control
+        # (task_direction_effect) is a LIVE control -- removing the task
+        # direction w genuinely changes the head's logits, so C4(b)'s
+        # "not silently inert" bar can be satisfied. projection_removal_control
+        # -- the factor-decodability-drop functional, whose task_direction_effect
+        # is ~0 BY DESIGN (removing w does not remove factor information), so it
+        # can never satisfy C4(b) even in principle -- is kept ONLY as the
+        # cache-space fold-level fallback (the pre-Phase B regime, where no
+        # per-checkpoint behavioral control exists). control_source names the
+        # functional actually used, so the regime is never ambiguous.
         per_ckpt_acc: dict[str, dict] = {}
         battery_sources: set[str] = set()
         for estimator in battery.get("estimators", {}).values():
@@ -734,11 +759,17 @@ def criterion_4_intervention_vs_random(records: list[dict], min_fraction: float 
                 eff = fold.get("effect", {})
                 fold_level_prc = eff.get("projection_removal_control", {})
                 for ckpt_name, ckpt_entry in eff.get("per_checkpoint", {}).items():
-                    ckpt_prc = ckpt_entry.get("projection_removal_control")
-                    if ckpt_prc:
-                        prc, source = ckpt_prc, "per_checkpoint"
+                    ckpt_pcc = ckpt_entry.get("prediction_change_control")
+                    # A usable per-checkpoint behavioral control carries the
+                    # control-bearing fields. The not_estimable sentinel (w
+                    # disabled == the cache-space regime) and the empty dict
+                    # carry neither, and fall through to the fold-level control.
+                    if isinstance(ckpt_pcc, dict) and (
+                        "exceeds_random" in ckpt_pcc or "task_direction_effect" in ckpt_pcc
+                    ):
+                        prc, source = ckpt_pcc, "per_checkpoint:prediction_change_control"
                     else:
-                        prc, source = fold_level_prc, "fold_level_fallback"
+                        prc, source = fold_level_prc, "fold_level_fallback:projection_removal_control"
                     battery_sources.add(source)
                     acc = per_ckpt_acc.setdefault(ckpt_name, dict(
                         main_flags=[], control_flags=[], control_any_not_estimable=False, sources=set(),
@@ -768,6 +799,12 @@ def criterion_4_intervention_vs_random(records: list[dict], min_fraction: float 
             per_checkpoint_verdicts[ckpt_name] = dict(
                 status=ckpt_status, main_exceeds_random_fraction=ckpt_main_fraction,
                 n_main_folds=len(acc["main_flags"]), n_control_folds_estimable=len(acc["control_flags"]),
+                # n_control_folds_passing lets a FAIL be read as fail-with-live-
+                # control (== n_control_folds_estimable > 0, the positive control
+                # cleared its bar, so the main effect is genuinely absent) vs
+                # fail-by-dead-control (< n_control_folds_estimable) without
+                # re-deriving it from the raw flags.
+                n_control_folds_passing=sum(acc["control_flags"]),
                 control_source=ckpt_sources[0] if len(ckpt_sources) == 1 else ckpt_sources,
             )
 

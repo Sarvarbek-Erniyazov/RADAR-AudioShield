@@ -602,10 +602,14 @@ def test_gate_reads_modelspace_output_and_leaves_not_estimable(tmp_path, monkeyp
 def _make_hand_built_modelspace_battery(weak_run="ckA"):
     """Minimal, hand-built battery record (bypassing the full crossfit
     machinery for full, deterministic control) with 3 checkpoints whose
-    projection_removal_control GENUINELY differs: `weak_run` (the
-    PRIMARY checkpoint under merge_checkpoint_estimator_results'
-    sorted()[0] convention -- "ckA" sorts first) shows a weak/no causal
-    effect; the other two show a strong one."""
+    BEHAVIORAL control (prediction_change_control -- the functional C4 reads
+    per checkpoint since docs/gate_prereg.md's 2026-07-23 #2 amendment)
+    GENUINELY differs: `weak_run` (the PRIMARY checkpoint under
+    merge_checkpoint_estimator_results' sorted()[0] convention -- "ckA" sorts
+    first) shows a weak/no causal effect; the other two show a strong one.
+    The fold-level projection_removal_control is populated only as the
+    cache-space fallback and must NOT be read here (every checkpoint has a
+    usable behavioral control)."""
     def weak_control():
         return dict(true_effect=0.01, random_effects=[0.01] * 20, random_mean=0.01, random_std=0.001,
                     task_direction_effect=0.01, exceeds_random=False)
@@ -617,13 +621,18 @@ def _make_hand_built_modelspace_battery(weak_run="ckA"):
     runs = ["ckA", "ckB", "ckC"]
     controls = {run: (weak_control() if run == weak_run else strong_control()) for run in runs}
     per_checkpoint = {
-        run: dict(alignment=0.1, r_var=0.1, prediction_change={}, prediction_change_control={},
-                  projection_removal_control=controls[run])
+        run: dict(alignment=0.1, r_var=0.1, prediction_change={},
+                  prediction_change_control=controls[run])
         for run in runs
     }
     primary_run = sorted(runs)[0]  # matches merge_checkpoint_estimator_results' own convention
 
     def make_fold():
+        # fold-level projection_removal_control is the cache-space fallback,
+        # deliberately set to the PRIMARY's control -- if the code ever read it
+        # (the pre-2026-07-23 #2 behaviour) the non-primary discrimination
+        # tests below would silently pass by reading ckA's value for every
+        # checkpoint. The behavioral per-checkpoint control must win instead.
         return dict(fold_id=0, chosen={"k": 1}, selection_score=0.9, n_selection=10, n_effect=5,
                     effect=dict(per_checkpoint=per_checkpoint, factor_separation_score=0.5, leace={}, inlp={},
                                 projection_removal_control=controls[primary_run]))
@@ -717,7 +726,7 @@ def test_c4_passes_when_all_checkpoints_pass():
     per_ckpt = per_battery["per_checkpoint"]
     assert set(per_ckpt) == {"ckA", "ckB", "ckC"}
     assert all(v["status"] == run_gate.STATUS_PASS for v in per_ckpt.values())
-    assert all(v["control_source"] == "per_checkpoint" for v in per_ckpt.values())
+    assert all(v["control_source"] == "per_checkpoint:prediction_change_control" for v in per_ckpt.values())
     assert per_battery["verdict_summary"] == "ckA pass, ckB pass, ckC pass"
 
 
@@ -774,8 +783,126 @@ def test_c4_falls_back_to_fold_level_control_in_the_cache_space_regime():
     per_ckpt = per_battery["per_checkpoint"]
     assert set(per_ckpt) == {"ckA", "ckB", "ckC"}
     assert all(v["status"] == run_gate.STATUS_PASS for v in per_ckpt.values())
-    assert all(v["control_source"] == "fold_level_fallback" for v in per_ckpt.values())
-    assert per_battery["control_source"] == "fold_level_fallback"
+    assert all(v["control_source"] == "fold_level_fallback:projection_removal_control" for v in per_ckpt.values())
+    assert per_battery["control_source"] == "fold_level_fallback:projection_removal_control"
+
+
+# ---------------------------------------------------------------------------
+# C4 BEHAVIORAL-FUNCTIONAL SWITCH (docs/gate_prereg.md's 2026-07-23 #2 C4
+# amendment). C4's main effect and positive control are evaluated, per
+# checkpoint, on prediction_change_control (mean_abs_logit_change -- a LIVE
+# control) rather than projection_removal_control (factor-decodability drop,
+# whose task_direction_effect is ~0 by construction, an inert positive
+# control that can only ever manufacture a fail-by-dead-control).
+# ---------------------------------------------------------------------------
+
+
+def _make_behavioral_control_battery(name, control_by_run):
+    """Battery whose per-checkpoint BEHAVIORAL control
+    (prediction_change_control) is set explicitly per run. The fold-level
+    projection_removal_control is present but deliberately inert (the
+    factor-decodability-drop shape whose positive control is dead by
+    construction) -- if the code ever fell back to it here, the assertions
+    below would catch it as a fail-by-dead-control / wrong control_source,
+    because every checkpoint has a usable behavioral control and must be
+    decided on it."""
+    runs = sorted(control_by_run)
+    per_checkpoint = {
+        run: dict(alignment=0.1, r_var=0.1,
+                  prediction_change=dict(mean_abs_logit_change=control_by_run[run]["true_effect"],
+                                         decision_flip_rate=0.0),
+                  prediction_change_control=control_by_run[run])
+        for run in runs
+    }
+    dead_fold_control = dict(true_effect=-0.005, random_effects=[0.0] * 20, random_mean=-0.0008,
+                              random_std=0.0019, task_direction_effect=-0.0001, exceeds_random=False)
+
+    def make_fold():
+        return dict(fold_id=0, chosen={"k": 1}, selection_score=0.9, n_selection=10, n_effect=5,
+                    effect=dict(per_checkpoint=per_checkpoint, factor_separation_score=0.5, leace={}, inlp={},
+                                projection_removal_control=dead_fold_control))
+
+    battery = dict(
+        name=name, corpus="diffssd", factor="generator_id", grouping="source_id",
+        n_rows=100, n_levels=4, n_groups=10, grouping_degenerate=False,
+        ranks_requested=[1], ranks_valid=[1], layer_mode="model_space",
+        estimators=dict(lda=dict(fold_results=[make_fold()], status="ok", timed_out=False),
+                         probe=dict(fold_results=[make_fold()], status="ok", timed_out=False)),
+    )
+    prereg_candidate = dict(name=name, headline_metric="r_var", stable_rank_window=[1],
+                             estimators_agree_sign=True, cis_overlap=True, n_groups=10, grouping_degenerate=False)
+    return [dict(battery=battery, prereg_candidate=prereg_candidate, checkpoints={}, w_metrics={}, join_stats={},
+                 source="synthetic")]
+
+
+def test_c4_passes_when_the_head_genuinely_relies_on_the_factor_subspace():
+    """(a) A head that TRULY relies on the factor subspace: on the behavioral
+    functional the main projection effect exceeds its equal-norm random
+    control AND the task-direction positive control is live, for every
+    checkpoint -> C4 PASS, every control flag True, decided on
+    per_checkpoint:prediction_change_control (never the fold-level fallback)."""
+    reliant = dict(true_effect=0.9, random_effects=[0.05] * 20, random_mean=0.05, random_std=0.01,
+                   task_direction_effect=0.9, exceeds_random=True)
+    control_by_run = {run: dict(reliant) for run in ("e007_A", "e007_B", "e007_C")}
+    records = _make_behavioral_control_battery("synthetic_reliant_battery", control_by_run)
+    result = run_gate.criterion_4_intervention_vs_random(records)
+    assert result["status"] == run_gate.STATUS_PASS
+    per_battery = result["numbers"]["per_battery"]["synthetic_reliant_battery"]
+    per_ckpt = per_battery["per_checkpoint"]
+    assert set(per_ckpt) == {"e007_A", "e007_B", "e007_C"}
+    for v in per_ckpt.values():
+        assert v["status"] == run_gate.STATUS_PASS
+        assert v["control_source"] == "per_checkpoint:prediction_change_control"
+        assert v["n_control_folds_passing"] == v["n_control_folds_estimable"] > 0
+    assert per_battery["control_source"] == "per_checkpoint:prediction_change_control"
+
+
+def test_c4_fails_with_a_live_control_on_a_real_shaped_record():
+    """(b) The REAL model-space shape (analysis/step3/
+    reliance_modelspace_prereg.json): a vanishing factor projection effect
+    (true_effect ~1.8e-6, so exceeds_random is False) but a HUGE task-direction
+    positive control (task_direction_effect ~6.76 vs random_mean+2sigma ~0.13).
+    C4 must FAIL -- the head does not rely on the factor subspace -- but as a
+    FAIL-WITH-LIVE-CONTROL: the positive control WAS estimable and every flag
+    passed (n_control_folds_passing == n_control_folds_estimable > 0), the main
+    effect is genuinely absent (main_exceeds_random_fraction == 0.0), and the
+    verdict was reached on prediction_change_control. This is the exact defect
+    the amendment fixes: on projection_removal_control the same record would
+    FAIL-BY-DEAD-CONTROL instead, its verdict scientifically meaningless."""
+    real_shaped = dict(true_effect=1.79e-06, random_effects=[0.05] * 20,
+                       random_mean=0.0517, random_std=0.0398,
+                       task_direction_effect=6.76, exceeds_random=False)
+    control_by_run = {run: dict(real_shaped) for run in ("e007_A", "e007_B", "e007_C")}
+    records = _make_behavioral_control_battery("synthetic_realshaped_battery", control_by_run)
+    result = run_gate.criterion_4_intervention_vs_random(records)
+    assert result["status"] == run_gate.STATUS_FAIL
+    per_battery = result["numbers"]["per_battery"]["synthetic_realshaped_battery"]
+    per_ckpt = per_battery["per_checkpoint"]
+    assert set(per_ckpt) == {"e007_A", "e007_B", "e007_C"}
+    for v in per_ckpt.values():
+        assert v["status"] == run_gate.STATUS_FAIL
+        assert v["control_source"] == "per_checkpoint:prediction_change_control"
+        assert v["main_exceeds_random_fraction"] == 0.0          # main effect genuinely absent
+        assert v["n_control_folds_estimable"] > 0                 # control WAS estimable...
+        assert v["n_control_folds_passing"] == v["n_control_folds_estimable"]  # ...and every flag True
+    assert per_battery["control_source"] == "per_checkpoint:prediction_change_control"
+
+
+def test_c4_cache_space_record_still_resolves_via_the_fallback_unchanged():
+    """(c) A cache-space-shaped record (per_checkpoint carries an empty
+    prediction_change_control and no per-checkpoint projection_removal_control;
+    the causal control lives only at the fold level) must resolve EXACTLY as
+    before via the fold-level fallback, now labelled by the functional it used
+    (fold_level_fallback:projection_removal_control) -- the behavioral-
+    functional switch must not perturb the pre-Phase B regime."""
+    records = _make_hand_built_cachespace_battery()
+    result = run_gate.criterion_4_intervention_vs_random(records)
+    assert result["status"] == run_gate.STATUS_PASS
+    per_battery = result["numbers"]["per_battery"]["synthetic_cachespace_battery"]
+    per_ckpt = per_battery["per_checkpoint"]
+    assert all(v["control_source"] == "fold_level_fallback:projection_removal_control" for v in per_ckpt.values())
+    assert all(v["n_control_folds_passing"] == v["n_control_folds_estimable"] > 0 for v in per_ckpt.values())
+    assert per_battery["control_source"] == "fold_level_fallback:projection_removal_control"
 
 
 def test_build_parser_defaults():
