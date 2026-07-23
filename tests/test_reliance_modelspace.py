@@ -783,3 +783,108 @@ def test_build_parser_defaults():
     assert args.n_boot == 1000
     assert args.seed == 13
     assert len(args.checkpoints) == 3
+
+
+# ---------------------------------------------------------------------------
+# Phase B cache path fix (docs/gate_prereg.md's 2026-07-23 amendment): both
+# committed gate verdicts looked for the cache at
+# <out_root>/<checkpoint-key>/<corpus-key> (e.g. e007_A_fresh/replaydf) --
+# never the extractor's real, canonical flat-file output
+# (runs_e007_A_fresh_best/04_ReplayDF) -- so the check was vacuous. These
+# tests exercise run_gate._real_phase_b_cache_names directly and the fixed
+# run_gate() orchestration end-to-end against a real (synthetic) shard
+# written at the CORRECTED path.
+# ---------------------------------------------------------------------------
+
+
+def test_real_phase_b_cache_names_maps_to_the_extractors_actual_convention():
+    assert run_gate._real_phase_b_cache_names("e007_A_fresh", "replaydf") == (
+        "runs_e007_A_fresh_best", "04_ReplayDF",
+    )
+    assert run_gate._real_phase_b_cache_names("e007_C_xlsr_fresh", "diffssd") == (
+        "runs_e007_C_xlsr_fresh_best", "03_DiffSSD",
+    )
+
+
+def test_real_phase_b_cache_names_returns_none_for_an_unknown_corpus():
+    assert run_gate._real_phase_b_cache_names("e007_A_fresh", "some_future_corpus") is None
+
+
+def _write_phase_b_probe_battery(path: Path, checkpoints: dict, join_stats: dict) -> None:
+    """Minimal STANDALONE Phase A file (run_gate.load_phase_a_file's
+    top-level battery+prereg_candidate shape) carrying real checkpoints/
+    join_stats keys -- enough for run_gate()'s Phase B cache check to have
+    something to iterate. The battery itself is marked skipped so no other
+    criterion does anything with it; this test is only about
+    phase_b_cache_status."""
+    payload = dict(
+        schema_version=1, git_sha="synthetic", checkpoints=checkpoints, w_metrics={}, join_stats=join_stats,
+        battery=dict(name="phase_b_probe_battery", corpus=next(iter(join_stats)), factor="generator_id",
+                     grouping="source_id", n_rows=10, n_levels=2, n_groups=5, grouping_degenerate=False,
+                     ranks_requested=[1], ranks_valid=[1], layer_mode="model_space",
+                     estimators=dict(lda=dict(fold_results=[], status="ok", timed_out=False),
+                                      probe=dict(fold_results=[], status="ok", timed_out=False))),
+        prereg_candidate=dict(name="phase_b_probe_battery", skipped="phase-B-cache-only probe, not a real battery"),
+    )
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _write_real_shard(shard_path: Path) -> None:
+    shard_path.parent.mkdir(parents=True, exist_ok=True)
+    meta = dict(checkpoint_sha256="a" * 64, model_config_hash="b" * 16, git_sha="synthetic", dtype="float32",
+                corpus_dir="04_ReplayDF", n_rows=2)
+    np.savez(shard_path, paths=np.array(["f0.wav", "f1.wav"]),
+             emb=np.zeros((2, 8), dtype=np.float32), meta=np.array(json.dumps(meta)))
+
+
+def test_run_gate_finds_the_real_phase_b_cache_after_the_path_fix(tmp_path):
+    """THE regression test for the fix: a battery with checkpoint key
+    "e007_A_fresh" and corpus key "replaydf" whose cache is written at the
+    extractor's REAL path (runs_e007_A_fresh_best/04_ReplayDF) must resolve
+    to STATUS_PASS -- not pending_input, which is what both committed gate
+    verdicts reported for every checkpoint because the check was looking in
+    a directory the extractor never writes to."""
+    battery_path = tmp_path / "phase_b_probe.json"
+    _write_phase_b_probe_battery(
+        battery_path, checkpoints={"e007_A_fresh": {}}, join_stats={"replaydf": {}},
+    )
+    cache_root = tmp_path / "_embcache_modelspace"
+    _write_real_shard(cache_root / "runs_e007_A_fresh_best" / "04_ReplayDF" / "shard_0000.npz")
+
+    verdict = run_gate.run_gate(phase_a_paths=[battery_path], phase_b_out_root=cache_root)
+
+    status = verdict["phase_b_cache_status"]["e007_A_fresh/replaydf"]
+    assert status["status"] == run_gate.STATUS_PASS
+    assert status["path"] == str(cache_root / "runs_e007_A_fresh_best" / "04_ReplayDF")
+
+
+def test_run_gate_phase_b_cache_still_pending_at_the_old_wrong_path(tmp_path):
+    """Confirms the OLD path really is a dead end: a shard sitting at the
+    pre-fix location (checkpoint/corpus verbatim, no runs_/_best, no
+    CORPUS_DIR translation) is NOT what the fixed code looks for -- it
+    still reports pending_input, because that's genuinely not where the
+    real extractor writes."""
+    battery_path = tmp_path / "phase_b_probe.json"
+    _write_phase_b_probe_battery(
+        battery_path, checkpoints={"e007_A_fresh": {}}, join_stats={"replaydf": {}},
+    )
+    cache_root = tmp_path / "_embcache_modelspace"
+    _write_real_shard(cache_root / "e007_A_fresh" / "replaydf" / "shard_0000.npz")  # the OLD, wrong path
+
+    verdict = run_gate.run_gate(phase_a_paths=[battery_path], phase_b_out_root=cache_root)
+
+    status = verdict["phase_b_cache_status"]["e007_A_fresh/replaydf"]
+    assert status["status"] == run_gate.STATUS_PENDING
+
+
+def test_run_gate_phase_b_cache_reports_a_legible_fail_for_an_unknown_corpus(tmp_path):
+    battery_path = tmp_path / "phase_b_probe.json"
+    _write_phase_b_probe_battery(
+        battery_path, checkpoints={"e007_A_fresh": {}}, join_stats={"some_future_corpus": {}},
+    )
+
+    verdict = run_gate.run_gate(phase_a_paths=[battery_path], phase_b_out_root=tmp_path / "_embcache_modelspace")
+
+    status = verdict["phase_b_cache_status"]["e007_A_fresh/some_future_corpus"]
+    assert status["status"] == run_gate.STATUS_FAIL
+    assert "CORPUS_DIR" in status["reason"]

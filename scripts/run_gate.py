@@ -27,6 +27,17 @@ analysis over already-produced files:
     reported `pending_input` for real runs until the collaborator machine
     produces it.
 
+    <checkpoint-stem>/<corpus-dir> above are the REAL on-disk names, not
+    Phase A's own checkpoint/corpus identifiers verbatim (docs/gate_prereg.md's
+    2026-07-23 Phase B verification amendment): the extractor's canonical
+    flat-file convention writes to runs_<checkpoint-key>_best/<CORPUS_DIR[
+    corpus-key]>, e.g. runs_e007_A_fresh_best/04_ReplayDF for checkpoint key
+    "e007_A_fresh" and corpus key "replaydf" -- NOT e007_A_fresh/replaydf,
+    which is what both `analysis/step4/gate_verdict.json` and
+    `analysis/step4/gate_verdict_prereg.json` looked for before this fix
+    (vacuously; that path can never exist). `_real_phase_b_cache_names`
+    below does this translation before every `check_phase_b_cache` call.
+
   - Per-checkpoint EER files, produced by cross_test.py (directly, or via
     scripts/reproduce_eval.py's `repro_<run>.json`): top-level `checkpoint`
     (the .pt path, whose parent dir name is the run name, e.g.
@@ -324,6 +335,42 @@ def load_eer_inputs(paths: list[Path]) -> tuple[dict[str, dict[str, float]], lis
 # ---------------------------------------------------------------------------
 # Phase B cache presence/schema check (extract_model_embeddings.py output)
 # ---------------------------------------------------------------------------
+
+# Corpus-key -> on-disk dataset-directory-name table, DUPLICATED (not
+# imported) from scripts/run_reliance_battery.py's own CORPUS_DIR.
+# run_reliance_battery.py imports torch at module level (to load a
+# checkpoint's classifier weight); importing it here just to reuse this
+# 3-entry table would make this CPU-only, "no GPU" reporting tool (see this
+# module's own docstring) contingent on torch importing cleanly -- exactly
+# the GPU-stack-contamination problem step3_modelspace_hardening_addendum.md's
+# Finding 2 fixed for run_reliance_modelspace.py's _sha256_file reuse.
+# Relocating this table to a shared, stdlib-only module (the Finding-2-style
+# proper fix) would require editing run_reliance_battery.py, out of scope
+# for this change -- keep these two tables in sync by hand if a new corpus
+# is added to either.
+CORPUS_DIR = {
+    "diffssd": "03_DiffSSD",
+    "replaydf": "04_ReplayDF",
+    "vctk": "09_VCTK",
+}
+
+
+def _real_phase_b_cache_names(checkpoint_key: str, corpus_key: str) -> tuple[str, str] | None:
+    """Translates Phase A's own identifiers (checkpoint_key like
+    "e007_A_fresh", corpus_key like "replaydf") into the REAL on-disk names
+    scripts/extract_model_embeddings.py actually writes under, per its
+    canonical flat-file naming convention (no --run-name):
+    f"runs_{checkpoint_key}_best" for the checkpoint directory
+    (scripts/run_reliance_modelspace.py's own construction at its
+    ckpt_path = ckpt_dir / f"runs_{run}_best.pt", confirmed by direct read)
+    and CORPUS_DIR[corpus_key] for the corpus directory. Returns None if
+    corpus_key isn't in CORPUS_DIR -- the caller must report a decided,
+    legible failure rather than silently guessing a directory name for an
+    unknown corpus."""
+    corpus_dir = CORPUS_DIR.get(corpus_key)
+    if corpus_dir is None:
+        return None
+    return f"runs_{checkpoint_key}_best", corpus_dir
 
 
 def check_phase_b_cache(out_root: Path, checkpoint_stem: str, corpus_dir: str) -> dict:
@@ -1002,12 +1049,25 @@ def run_gate(
     seen = set()
     for rec in records:
         for ckpt_stem in rec["checkpoints"]:
-            for corpus_dir in rec["join_stats"]:
-                key = (ckpt_stem, corpus_dir)
+            for corpus in rec["join_stats"]:
+                key = (ckpt_stem, corpus)
                 if key in seen:
                     continue
                 seen.add(key)
-                phase_b_status[f"{ckpt_stem}/{corpus_dir}"] = check_phase_b_cache(phase_b_out_root, ckpt_stem, corpus_dir)
+                real_names = _real_phase_b_cache_names(ckpt_stem, corpus)
+                if real_names is None:
+                    phase_b_status[f"{ckpt_stem}/{corpus}"] = dict(
+                        status=STATUS_FAIL,
+                        reason=f"corpus {corpus!r} has no known on-disk dataset directory in "
+                               "this module's CORPUS_DIR table -- cannot construct the real "
+                               "Phase B extraction path to check (add it to CORPUS_DIR if this "
+                               "is a genuinely new corpus)",
+                    )
+                    continue
+                real_ckpt_dir, real_corpus_dir = real_names
+                phase_b_status[f"{ckpt_stem}/{corpus}"] = check_phase_b_cache(
+                    phase_b_out_root, real_ckpt_dir, real_corpus_dir
+                )
 
     _log("gate: loading head-replicate input (criterion 8)")
     replicates, replicate_warnings = load_head_replicates(head_replicates_path)
